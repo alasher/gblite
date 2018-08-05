@@ -7,11 +7,7 @@ use std::error::Error;
 use std::fs::File;
 use std::collections::HashMap;
 
-// struct Instruction {
-//     name: String,
-//     bytes: u8,
-//     clocks: u8
-// }
+mod cpu;
 
 #[derive(Deserialize, Debug)]
 struct Opcode {
@@ -59,6 +55,8 @@ fn main() {
         println!("Error: Need to define both DMG file and opcode JSON file!");
         return;
     }
+
+    cpu::run();
 
     let op_lookup = read_opcodes(opfile.as_str()).unwrap();
     let op_lookup = create_lookup_table(op_lookup);
