@@ -6,7 +6,18 @@ TODO: Here we should handle rom-bank switching. When we specify an address betwe
       We should load the entire file to memory (somewhere) and keep the ROM bank ID saved, then
       here we can read the file buffer at the appropriate offset which we calculate from the ID.
 */
-struct Memory {
+
+pub struct Memory {
     mem: Vec<u8>,
     size: usize
 }
+
+impl Memory {
+    pub fn new(size: usize) -> Memory {
+        Memory {
+            mem: Vec::with_capacity(size),
+            size: size
+        }
+    }
+}
+
