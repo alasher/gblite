@@ -1,3 +1,5 @@
+use memory::Memory;
+
 struct Flags {
     zero: bool,
     was_sub: bool,
@@ -36,6 +38,18 @@ struct Registers {
 }
 
 impl Registers {
+    pub fn new() -> Registers {
+        Registers {
+            a: 0x0,
+            f: Flags{zero: false, was_sub: false, half_carry: false, carry: false},
+            bc: DoubleRegister{lo: 0x0, hi: 0x0},
+            de: DoubleRegister{lo: 0x0, hi: 0x0},
+            hl: DoubleRegister{lo: 0x0, hi: 0x0},
+            sp: 0x0,
+            pc: 0x0
+        }
+    }
+
     // Get/Set for 8-bit registers
     pub fn get_a(&self) -> u8 { self.a }
     pub fn get_b(&self) -> u8 { self.bc.get_lo() }
@@ -65,6 +79,20 @@ impl Registers {
     pub fn set_hl(&mut self, val: u16) { self.hl.set_double(val); }
 }
 
-pub fn run() {
-    println!("Running the CPU!");
+pub struct CPU {
+    regs: Registers,
+    mem: Memory
+}
+
+impl CPU {
+    pub fn new(mem: Memory) -> CPU {
+        CPU {
+            regs: Registers::new(),
+            mem: mem
+        }
+    }
+
+    pub fn dump_mem(&self) {
+        self.mem.dump_rom();
+    }
 }
