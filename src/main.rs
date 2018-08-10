@@ -14,8 +14,12 @@ fn main() {
     }
 
     let mut mem = memory::Memory::new(0x10000);
-    mem.load_rom(&fname);
+    mem.load_rom_file(&fname);
 
-    let z80 = cpu::CPU::new(mem);
-    z80.dump_mem();
+    let mut z80 = cpu::CPU::new(mem);
+
+    // Now, run instructions *literally* forever!
+    loop {
+        if !z80.process() { break; }
+    }
 }

@@ -46,7 +46,7 @@ impl Registers {
             de: DoubleRegister{lo: 0x0, hi: 0x0},
             hl: DoubleRegister{lo: 0x0, hi: 0x0},
             sp: 0x0,
-            pc: 0x0
+            pc: 0x100 // Skip the Boot ROM
         }
     }
 
@@ -81,18 +81,78 @@ impl Registers {
 
 pub struct CPU {
     regs: Registers,
-    mem: Memory
+    mem: Memory,
+    ir_enabled: bool
 }
 
 impl CPU {
     pub fn new(mem: Memory) -> CPU {
         CPU {
             regs: Registers::new(),
-            mem: mem
+            mem: mem,
+            ir_enabled: true
         }
     }
 
-    pub fn dump_mem(&self) {
-        self.mem.dump_rom();
+    fn parse_u16(&self, iaddr: usize) -> u16 {
+        let addr = (self.mem.get(iaddr+1) as u16) << 8;
+        let addr = addr + self.mem.get(iaddr) as u16;
+        addr
+    }
+
+    // Run the instruction at the current PC
+    pub fn process(&mut self) -> bool {
+        let iaddr = usize::from(self.regs.pc);
+        let mut jump: bool = false;
+        let mut quit: bool = false;
+        let mut opname: String = String::from("UNDEFINED");
+
+        let opcode = self.mem.get(iaddr);
+        let opcode = if opcode == 0xCB {
+            self.regs.pc += 1;
+            (opcode << 2) + self.mem.get(iaddr+1)
+        } else {
+            opcode
+        };
+
+        // TODO: Finish adding instructions below
+        match opcode {
+            0x00 => {
+                opname = String::from("NOP");
+            },
+            0xC3 => {
+                let addr = self.parse_u16(iaddr+1);
+                opname = format!("JP a16 (0x{:04x})", addr);
+                self.regs.pc = addr;
+                jump = true;
+            },
+            0xCB => {
+                // This should never happen, we should always append the prefix after CB, ex: 0xCB01
+                println!("Fatal error: encountered unadjusted 0xCB literal!");
+                opname = String::from("PREFIX CB");
+                quit = true;
+            },
+            0xF3 => {
+                opname = String::from("DI");
+                self.ir_enabled = false;
+            },
+            0xFB => {
+                opname = String::from("EI");
+                self.ir_enabled = true;
+            },
+            _ => {
+                println!("Fatal error: undefined instruction!");
+                opname = format!("UNDEFINED {:2x}", opcode);
+                quit = true;
+            }
+        }
+
+        if !jump {
+            self.regs.pc += 1;
+        }
+
+        println!("0x{:04x}: {}", iaddr, opname);
+
+        !quit
     }
 }

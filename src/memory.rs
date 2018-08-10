@@ -14,12 +14,29 @@ pub struct Memory {
 impl Memory {
     pub fn new(size: usize) -> Memory {
         Memory {
-            mem: Vec::with_capacity(size),
+            mem: vec![0; size],
             rom: Vec::new()
         }
     }
 
-    pub fn load_rom(&mut self, file_name : &str) {
+    // TODO: Need to pull from mem for some ranges, and ROM for others. Implement some functions
+    // for ROM switching, so we can do that within the CPU.
+    pub fn get(&self, addr: usize) -> u8 {
+        if addr < 0x4000 {
+            self.rom[addr]
+        } else if addr < 0x8000 {
+            println!("Reading from ROM bank N, this is unimplemented!");
+            self.rom[addr]
+        } else {
+            self.mem[addr]
+        }
+    }
+
+    pub fn set(&mut self, val: u8, addr: usize) {
+        self.mem[addr] = val;
+    }
+
+    pub fn load_rom_file(&mut self, file_name : &str) {
        self.rom = fs::read(file_name).unwrap_or(vec![])
     }
 
@@ -46,4 +63,3 @@ impl Memory {
     }
 
 }
-
