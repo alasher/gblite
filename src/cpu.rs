@@ -100,7 +100,7 @@ impl CPU {
         addr
     }
 
-    // Run the instruction at the current PC
+    // Run the instruction at the current PC, return true if successful.
     pub fn process(&mut self) -> bool {
         let iaddr = usize::from(self.regs.pc);
         let mut jump: bool = false;
