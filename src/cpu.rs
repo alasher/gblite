@@ -98,15 +98,29 @@ impl CPU {
         ((self.mem.get(iaddr+1) as u16) << 8) | self.mem.get(iaddr) as u16
     }
 
+    fn print_instruction_debug(&self, opname: &str, ncycles: u8, old_pc: u16, opsize: u8) {
+        let mut pstr = format!("0x{:04x}: {} - {} cycles", old_pc, opname, ncycles);
+        if opsize > 1 {
+            pstr += " - operands: ";
+            for i in 1..opsize {
+                pstr += &format!("0x{:02x} ", self.mem.get(old_pc + i as u16));
+            }
+        }
+        println!("{}", pstr);
+    }
+
     // Run the instruction at the current PC, return true if successful.
     pub fn process(&mut self) -> bool {
         let mut quit: bool = false;
+        let mut jump: bool = false;
         let mut opname: String = String::from("UNDEFINED");
-        let mut cycles: u8 = 0;
-        let old_pc = self.regs.pc;
+
+        // TODO: Move these to a separate lookup buffer? It would clean up the
+        //       giant match statement below a little bit.
+        let mut cycles: u8 = 4;
+        let mut opsize: u8 = 1;
 
         let opcode = self.mem.get(self.regs.pc);
-
         let operand8  = self.mem.get(self.regs.pc+1);
         let operand16 = self.parse_u16(self.regs.pc+1);
 
@@ -126,58 +140,76 @@ impl CPU {
             0x00 => {
                 opname = String::from("NOP");
             },
+            0x01 => {
+                opname = String::from("LD BC,d16");
+                self.regs.set_bc(operand16);
+                cycles += 12;
+                opsize = 3;
+            },
             0x06 => {
                 opname = String::from("LD B,d8");
                 self.regs.set_b(operand8);
                 cycles += 8;
-                self.regs.pc += 2;
+                opsize = 2;
             },
             0x0E => {
                 opname = String::from("LD C,d8");
                 self.regs.set_c(operand8);
                 cycles += 8;
-                self.regs.pc += 2;
+                opsize = 2;
+            },
+            0x11 => {
+                opname = String::from("LD DE,d16");
+                self.regs.set_de(operand16);
+                cycles += 12;
+                opsize = 3;
             },
             0x16 => {
                 opname = String::from("LD D,d8");
                 self.regs.set_d(operand8);
                 cycles += 8;
-                self.regs.pc += 2;
+                opsize = 2;
             },
             0x1E => {
                 opname = String::from("LD E,d8");
                 self.regs.set_e(operand8);
                 cycles += 8;
-                self.regs.pc += 2;
+                opsize = 2;
+            },
+            0x21 => {
+                opname = String::from("LD HL,d16");
+                self.regs.set_hl(operand16);
+                cycles += 12;
+                opsize = 3;
             },
             0x26 => {
                 opname = String::from("LD H,d8");
                 self.regs.set_h(operand8);
                 cycles += 8;
-                self.regs.pc += 2;
+                opsize = 2;
             },
             0x2E => {
                 opname = String::from("LD L,d8");
                 self.regs.set_l(operand8);
                 cycles += 8;
-                self.regs.pc += 2;
+                opsize = 2;
             },
             0x31 => {
                 opname = String::from("LD SP,d16");
                 self.regs.set_sp(operand16);
-                self.regs.pc += 3;
+                opsize = 3;
             },
             0x36 => {
                 opname = String::from("LD (hl),d8");
                 self.mem.set(operand8, self.regs.get_hl());
                 cycles += 12;
-                self.regs.pc += 2;
+                opsize = 2;
             },
             0x3E => {
                 opname = String::from("LD A,d8");
                 self.regs.set_a(operand8);
                 cycles += 8;
-                self.regs.pc += 2;
+                opsize = 2;
             },
             0x40 => {
                 opname = String::from("LD B,B");
@@ -516,6 +548,7 @@ impl CPU {
             0xC3 => {
                 opname = format!("JP a16 (0x{:04x})", operand16);
                 self.regs.pc = operand16;
+                jump = true;
                 cycles += 16;
             },
             0xCB => {
@@ -524,9 +557,47 @@ impl CPU {
                 opname = String::from("PREFIX CB");
                 quit = true;
             },
+            0xE0 => {
+                opname = String::from("LDH (a8),A");
+                self.mem.set(self.regs.get_a(), 0xFF00 + (operand8 as u16));
+                cycles += 12;
+                opsize = 2;
+            },
+            0xE2 => {
+                opname = String::from("LD (C),A");
+                let addr = 0xFF00 + self.regs.get_c() as u16;
+                self.mem.set(self.regs.get_a(), addr);
+                cycles += 8;
+                opsize = 2;
+            },
+            0xEA => {
+                opname = String::from("LD (a16),A");
+                self.mem.set(self.regs.get_a(), operand16);
+                cycles += 16;
+                opsize = 3;
+            },
+            0xF0 => {
+                opname = String::from("LDH A,(a8)");
+                self.regs.set_a(self.mem.get(0xFF00 + (operand8 as u16)));
+                cycles += 12;
+                opsize = 2;
+            },
+            0xF2 => {
+                opname = String::from("LD (C),A");
+                let addr = 0xFF00 + self.regs.get_c() as u16;
+                self.mem.set(self.regs.get_a(), addr);
+                cycles += 8;
+                opsize = 2;
+            },
             0xF3 => {
                 opname = String::from("DI");
                 self.ir_enabled = false;
+            },
+            0xFA => {
+                opname = String::from("LD A,(a16)");
+                self.regs.set_a(self.mem.get(operand16));
+                cycles += 16;
+                opsize = 3;
             },
             0xFB => {
                 opname = String::from("EI");
@@ -539,17 +610,13 @@ impl CPU {
             }
         }
 
-        // Standard cycle count, 4
-        if cycles == 0 {
-            cycles = 4;
-        }
+        self.print_instruction_debug(opname.as_str(), cycles, self.regs.pc, opsize);
 
         // Standard PC increment, a single instruction
-        if self.regs.pc == old_pc {
-            self.regs.pc += 1;
+        if !jump {
+            self.regs.pc += opsize as u16;
         }
 
-        println!("0x{:04x}: {} - {} cycles", old_pc, opname, cycles);
 
         !quit
     }
