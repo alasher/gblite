@@ -46,7 +46,7 @@ impl Registers {
             de: DoubleRegister{lo: 0x0, hi: 0x0},
             hl: DoubleRegister{lo: 0x0, hi: 0x0},
             sp: 0x0,
-            pc: 0x100 // Skip the Boot ROM
+            pc: 0x0
         }
     }
 
@@ -94,24 +94,29 @@ impl CPU {
         }
     }
 
-    fn parse_u16(&self, iaddr: usize) -> u16 {
-        let addr = (self.mem.get(iaddr+1) as u16) << 8;
-        let addr = addr + self.mem.get(iaddr) as u16;
-        addr
+    fn parse_u16(&self, iaddr: u16) -> u16 {
+        ((self.mem.get(iaddr+1) as u16) << 8) | self.mem.get(iaddr) as u16
     }
 
     // Run the instruction at the current PC, return true if successful.
     pub fn process(&mut self) -> bool {
-        let iaddr = usize::from(self.regs.pc);
-        let mut jump: bool = false;
         let mut quit: bool = false;
         let mut opname: String = String::from("UNDEFINED");
         let mut cycles: u8 = 0;
+        let old_pc = self.regs.pc;
 
-        let opcode = self.mem.get(iaddr);
+        let opcode = self.mem.get(self.regs.pc);
+
+        let operand8  = self.mem.get(self.regs.pc+1);
+        let operand16 = self.parse_u16(self.regs.pc+1);
+
+        // Adjust opcode if it's a 0xCB prefixed instruction
         let opcode = if opcode == 0xCB {
             self.regs.pc += 1;
-            (opcode << 2) + self.mem.get(iaddr+1)
+            let newop = (opcode << 2) + operand8;
+            let operand8  = self.mem.get(self.regs.pc+1);
+            let operand16 = self.mem.get(self.regs.pc+2);
+            newop
         } else {
             opcode
         };
@@ -120,53 +125,93 @@ impl CPU {
         match opcode {
             0x00 => {
                 opname = String::from("NOP");
-                cycles += 4;
+            },
+            0x06 => {
+                opname = String::from("LD B,d8");
+                self.regs.set_b(operand8);
+                cycles += 8;
+                self.regs.pc += 2;
+            },
+            0x0E => {
+                opname = String::from("LD C,d8");
+                self.regs.set_c(operand8);
+                cycles += 8;
+                self.regs.pc += 2;
+            },
+            0x16 => {
+                opname = String::from("LD D,d8");
+                self.regs.set_d(operand8);
+                cycles += 8;
+                self.regs.pc += 2;
+            },
+            0x1E => {
+                opname = String::from("LD E,d8");
+                self.regs.set_e(operand8);
+                cycles += 8;
+                self.regs.pc += 2;
+            },
+            0x26 => {
+                opname = String::from("LD H,d8");
+                self.regs.set_h(operand8);
+                cycles += 8;
+                self.regs.pc += 2;
+            },
+            0x2E => {
+                opname = String::from("LD L,d8");
+                self.regs.set_l(operand8);
+                cycles += 8;
+                self.regs.pc += 2;
             },
             0x31 => {
                 opname = String::from("LD SP,d16");
-                let imm16 = self.parse_u16(iaddr+1);
-                self.regs.set_sp(imm16);
-                cycles += 4;
+                self.regs.set_sp(operand16);
+                self.regs.pc += 3;
+            },
+            0x36 => {
+                opname = String::from("LD (hl),d8");
+                self.mem.set(operand8, self.regs.get_hl());
+                cycles += 12;
+                self.regs.pc += 2;
+            },
+            0x3E => {
+                opname = String::from("LD A,d8");
+                self.regs.set_a(operand8);
+                cycles += 8;
+                self.regs.pc += 2;
             },
             0x40 => {
                 opname = String::from("LD B,B");
                 let r = self.regs.get_b();
                 self.regs.set_b(r);
-                cycles += 4;
             },
             0x41 => {
                 opname = String::from("LD B,C");
                 let r = self.regs.get_c();
                 self.regs.set_b(r);
-                cycles += 4;
             },
             0x42 => {
                 opname = String::from("LD B,D");
                 let r = self.regs.get_d();
                 self.regs.set_b(r);
-                cycles += 4;
             },
             0x43 => {
                 opname = String::from("LD B,E");
                 let r = self.regs.get_e();
                 self.regs.set_b(r);
-                cycles += 4;
             },
             0x44 => {
                 opname = String::from("LD B,H");
                 let r = self.regs.get_h();
                 self.regs.set_b(r);
-                cycles += 4;
             },
             0x45 => {
                 opname = String::from("LD B,L");
                 let r = self.regs.get_l();
                 self.regs.set_b(r);
-                cycles += 4;
             },
             0x46 => {
                 opname = String::from("LD B,(HL)");
-                let r = self.mem.get(self.regs.get_hl() as usize);
+                let r = self.mem.get(self.regs.get_hl());
                 self.regs.set_b(r);
                 cycles += 8;
             },
@@ -174,47 +219,40 @@ impl CPU {
                 opname = String::from("LD B,A");
                 let r = self.regs.get_a();
                 self.regs.set_b(r);
-                cycles += 4;
             },
             0x48 => {
                 opname = String::from("LD C,B");
                 let r = self.regs.get_b();
                 self.regs.set_c(r);
-                cycles += 4;
             },
             0x49 => {
                 opname = String::from("LD C,C");
                 let r = self.regs.get_c();
                 self.regs.set_c(r);
-                cycles += 4;
             },
             0x4a => {
                 opname = String::from("LD C,D");
                 let r = self.regs.get_d();
                 self.regs.set_c(r);
-                cycles += 4;
             },
             0x4b => {
                 opname = String::from("LD C,E");
                 let r = self.regs.get_e();
                 self.regs.set_c(r);
-                cycles += 4;
             },
             0x4c => {
                 opname = String::from("LD C,H");
                 let r = self.regs.get_h();
                 self.regs.set_c(r);
-                cycles += 4;
             },
             0x4d => {
                 opname = String::from("LD C,L");
                 let r = self.regs.get_l();
                 self.regs.set_c(r);
-                cycles += 4;
             },
             0x4e => {
                 opname = String::from("LD C,(HL)");
-                let r = self.mem.get(self.regs.get_hl() as usize);
+                let r = self.mem.get(self.regs.get_hl());
                 self.regs.set_c(r);
                 cycles += 8;
             },
@@ -222,47 +260,40 @@ impl CPU {
                 opname = String::from("LD C,A");
                 let r = self.regs.get_a();
                 self.regs.set_c(r);
-                cycles += 4;
             },
             0x50 => {
                 opname = String::from("LD D,B");
                 let r = self.regs.get_b();
                 self.regs.set_d(r);
-                cycles += 4;
             },
             0x51 => {
                 opname = String::from("LD D,C");
                 let r = self.regs.get_c();
                 self.regs.set_d(r);
-                cycles += 4;
             },
             0x52 => {
                 opname = String::from("LD D,D");
                 let r = self.regs.get_d();
                 self.regs.set_d(r);
-                cycles += 4;
             },
             0x53 => {
                 opname = String::from("LD D,E");
                 let r = self.regs.get_e();
                 self.regs.set_d(r);
-                cycles += 4;
             },
             0x54 => {
                 opname = String::from("LD D,H");
                 let r = self.regs.get_h();
                 self.regs.set_d(r);
-                cycles += 4;
             },
             0x55 => {
                 opname = String::from("LD D,L");
                 let r = self.regs.get_l();
                 self.regs.set_d(r);
-                cycles += 4;
             },
             0x56 => {
                 opname = String::from("LD D,(HL)");
-                let r = self.mem.get(self.regs.get_hl() as usize);
+                let r = self.mem.get(self.regs.get_hl());
                 self.regs.set_d(r);
                 cycles += 8;
             },
@@ -270,47 +301,40 @@ impl CPU {
                 opname = String::from("LD D,A");
                 let r = self.regs.get_a();
                 self.regs.set_d(r);
-                cycles += 4;
             },
             0x58 => {
                 opname = String::from("LD E,B");
                 let r = self.regs.get_b();
                 self.regs.set_e(r);
-                cycles += 4;
             },
             0x59 => {
                 opname = String::from("LD E,C");
                 let r = self.regs.get_c();
                 self.regs.set_e(r);
-                cycles += 4;
             },
             0x5a => {
                 opname = String::from("LD E,D");
                 let r = self.regs.get_d();
                 self.regs.set_e(r);
-                cycles += 4;
             },
             0x5b => {
                 opname = String::from("LD E,E");
                 let r = self.regs.get_e();
                 self.regs.set_e(r);
-                cycles += 4;
             },
             0x5c => {
                 opname = String::from("LD E,H");
                 let r = self.regs.get_h();
                 self.regs.set_e(r);
-                cycles += 4;
             },
             0x5d => {
                 opname = String::from("LD E,L");
                 let r = self.regs.get_l();
                 self.regs.set_e(r);
-                cycles += 4;
             },
             0x5e => {
                 opname = String::from("LD E,(HL)");
-                let r = self.mem.get(self.regs.get_hl() as usize);
+                let r = self.mem.get(self.regs.get_hl());
                 self.regs.set_e(r);
                 cycles += 8;
             },
@@ -318,47 +342,40 @@ impl CPU {
                 opname = String::from("LD E,A");
                 let r = self.regs.get_a();
                 self.regs.set_e(r);
-                cycles += 4;
             },
             0x60 => {
                 opname = String::from("LD H,B");
                 let r = self.regs.get_b();
                 self.regs.set_h(r);
-                cycles += 4;
             },
             0x61 => {
                 opname = String::from("LD H,C");
                 let r = self.regs.get_c();
                 self.regs.set_h(r);
-                cycles += 4;
             },
             0x62 => {
                 opname = String::from("LD H,D");
                 let r = self.regs.get_d();
                 self.regs.set_h(r);
-                cycles += 4;
             },
             0x63 => {
                 opname = String::from("LD H,E");
                 let r = self.regs.get_e();
                 self.regs.set_h(r);
-                cycles += 4;
             },
             0x64 => {
                 opname = String::from("LD H,H");
                 let r = self.regs.get_h();
                 self.regs.set_h(r);
-                cycles += 4;
             },
             0x65 => {
                 opname = String::from("LD H,L");
                 let r = self.regs.get_l();
                 self.regs.set_h(r);
-                cycles += 4;
             },
             0x66 => {
                 opname = String::from("LD H,(HL)");
-                let r = self.mem.get(self.regs.get_hl() as usize);
+                let r = self.mem.get(self.regs.get_hl());
                 self.regs.set_h(r);
                 cycles += 8;
             },
@@ -366,47 +383,40 @@ impl CPU {
                 opname = String::from("LD H,A");
                 let r = self.regs.get_a();
                 self.regs.set_h(r);
-                cycles += 4;
             },
             0x68 => {
                 opname = String::from("LD L,B");
                 let r = self.regs.get_b();
                 self.regs.set_l(r);
-                cycles += 4;
             },
             0x69 => {
                 opname = String::from("LD L,C");
                 let r = self.regs.get_c();
                 self.regs.set_l(r);
-                cycles += 4;
             },
             0x6a => {
                 opname = String::from("LD L,D");
                 let r = self.regs.get_d();
                 self.regs.set_l(r);
-                cycles += 4;
             },
             0x6b => {
                 opname = String::from("LD L,E");
                 let r = self.regs.get_e();
                 self.regs.set_l(r);
-                cycles += 4;
             },
             0x6c => {
                 opname = String::from("LD L,H");
                 let r = self.regs.get_h();
                 self.regs.set_l(r);
-                cycles += 4;
             },
             0x6d => {
                 opname = String::from("LD L,L");
                 let r = self.regs.get_l();
                 self.regs.set_l(r);
-                cycles += 4;
             },
             0x6e => {
                 opname = String::from("LD L,(HL)");
-                let r = self.mem.get(self.regs.get_hl() as usize);
+                let r = self.mem.get(self.regs.get_hl());
                 self.regs.set_l(r);
                 cycles += 8;
             },
@@ -414,95 +424,87 @@ impl CPU {
                 opname = String::from("LD L,A");
                 let r = self.regs.get_a();
                 self.regs.set_l(r);
-                cycles += 4;
             },
             0x70 => {
                 opname = String::from("LD (HL),B");
                 let r = self.regs.get_b();
-                self.mem.set(r, self.regs.get_hl() as usize);
-                cycles += 4;
+                self.mem.set(r, self.regs.get_hl());
+                cycles += 8;
             },
             0x71 => {
                 opname = String::from("LD (HL),C");
                 let r = self.regs.get_c();
-                self.mem.set(r, self.regs.get_hl() as usize);
-                cycles += 4;
+                self.mem.set(r, self.regs.get_hl());
+                cycles += 8;
             },
             0x72 => {
                 opname = String::from("LD (HL),D");
                 let r = self.regs.get_d();
-                self.mem.set(r, self.regs.get_hl() as usize);
-                cycles += 4;
+                self.mem.set(r, self.regs.get_hl());
+                cycles += 8;
             },
             0x73 => {
                 opname = String::from("LD (HL),E");
                 let r = self.regs.get_e();
-                self.mem.set(r, self.regs.get_hl() as usize);
-                cycles += 4;
+                self.mem.set(r, self.regs.get_hl());
+                cycles += 8;
             },
             0x74 => {
                 opname = String::from("LD (HL),H");
                 let r = self.regs.get_h();
-                self.mem.set(r, self.regs.get_hl() as usize);
-                cycles += 4;
+                self.mem.set(r, self.regs.get_hl());
+                cycles += 8;
             },
             0x75 => {
                 opname = String::from("LD (HL),L");
                 let r = self.regs.get_l();
-                self.mem.set(r, self.regs.get_hl() as usize);
-                cycles += 4;
+                self.mem.set(r, self.regs.get_hl());
+                cycles += 8;
             },
             0x76 => {
                 println!("Encountered HALT instruction, exiting!");
                 opname = String::from("HALT");
                 quit = true;
-                cycles += 4;
             },
             0x77 => {
                 opname = String::from("LD (HL),A");
                 let r = self.regs.get_a();
-                self.mem.set(r, self.regs.get_hl() as usize);
-                cycles += 4;
+                self.mem.set(r, self.regs.get_hl());
+                cycles += 8;
             },
             0x78 => {
                 opname = String::from("LD A,B");
                 let r = self.regs.get_b();
                 self.regs.set_a(r);
-                cycles += 4;
             },
             0x79 => {
                 opname = String::from("LD A,C");
                 let r = self.regs.get_c();
                 self.regs.set_a(r);
-                cycles += 4;
             },
             0x7a => {
                 opname = String::from("LD A,D");
                 let r = self.regs.get_d();
                 self.regs.set_a(r);
-                cycles += 4;
             },
             0x7b => {
                 opname = String::from("LD A,E");
                 let r = self.regs.get_e();
                 self.regs.set_a(r);
-                cycles += 4;
             },
             0x7c => {
                 opname = String::from("LD A,H");
                 let r = self.regs.get_h();
                 self.regs.set_a(r);
-                cycles += 4;
             },
             0x7d => {
                 opname = String::from("LD A,L");
                 let r = self.regs.get_l();
                 self.regs.set_a(r);
-                cycles += 4;
             },
             0x7e => {
                 opname = String::from("LD A,(HL)");
-                let r = self.mem.get(self.regs.get_hl() as usize);
+                let r = self.mem.get(self.regs.get_hl());
                 self.regs.set_a(r);
                 cycles += 8;
             },
@@ -510,13 +512,10 @@ impl CPU {
                 opname = String::from("LD A,A");
                 let r = self.regs.get_a();
                 self.regs.set_a(r);
-                cycles += 4;
             },
             0xC3 => {
-                let addr = self.parse_u16(iaddr+1);
-                opname = format!("JP a16 (0x{:04x})", addr);
-                self.regs.pc = addr;
-                jump = true;
+                opname = format!("JP a16 (0x{:04x})", operand16);
+                self.regs.pc = operand16;
                 cycles += 16;
             },
             0xCB => {
@@ -524,30 +523,33 @@ impl CPU {
                 println!("Fatal error: encountered unadjusted 0xCB literal!");
                 opname = String::from("PREFIX CB");
                 quit = true;
-                cycles += 4;
             },
             0xF3 => {
                 opname = String::from("DI");
                 self.ir_enabled = false;
-                cycles += 4;
             },
             0xFB => {
                 opname = String::from("EI");
                 self.ir_enabled = true;
-                cycles += 4;
             },
             _ => {
                 println!("Fatal error: undefined instruction!");
-                opname = format!("UNDEFINED {:2x}", opcode);
+                opname = format!("UNDEFINED 0x{:02X}", opcode);
                 quit = true;
             }
         }
 
-        if !jump {
+        // Standard cycle count, 4
+        if cycles == 0 {
+            cycles = 4;
+        }
+
+        // Standard PC increment, a single instruction
+        if self.regs.pc == old_pc {
             self.regs.pc += 1;
         }
 
-        println!("0x{:04x}: {}", iaddr, opname);
+        println!("0x{:04x}: {} - {} cycles", old_pc, opname, cycles);
 
         !quit
     }
