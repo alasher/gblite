@@ -98,6 +98,14 @@ impl CPU {
         ((self.mem.get(iaddr+1) as u16) << 8) | self.mem.get(iaddr) as u16
     }
 
+    // Push next_addr to stack, and jump to the jump_addr
+    fn call(&mut self, jump_addr: u16, next_addr: u16) {
+        self.regs.sp -= 2;
+        self.mem.set((next_addr & 0xFF) as u8, self.regs.sp);
+        self.mem.set((next_addr >> 8) as u8, self.regs.sp+1);
+        self.regs.pc = jump_addr;
+    }
+
     fn print_instruction_debug(&self, opname: &str, ncycles: u8, old_pc: u16, opsize: u8) {
         let mut pstr = format!("0x{:04x}: {} - {} cycles", old_pc, opname, ncycles);
         if opsize > 1 {
@@ -114,6 +122,7 @@ impl CPU {
         let mut quit: bool = false;
         let mut jump: bool = false;
         let mut opname: String = String::from("UNDEFINED");
+        let old_pc = self.regs.pc;
 
         // TODO: Move these to a separate lookup buffer? It would clean up the
         //       giant match statement below a little bit.
@@ -197,6 +206,7 @@ impl CPU {
             0x31 => {
                 opname = String::from("LD SP,d16");
                 self.regs.set_sp(operand16);
+                cycles += 12;
                 opsize = 3;
             },
             0x36 => {
@@ -546,16 +556,25 @@ impl CPU {
                 self.regs.set_a(r);
             },
             0xC3 => {
-                opname = format!("JP a16 (0x{:04x})", operand16);
+                opname = String::from("JP a16");
                 self.regs.pc = operand16;
                 jump = true;
                 cycles += 16;
+                opsize = 3;
             },
             0xCB => {
                 // This should never happen, we should always append the prefix after CB, ex: 0xCB01
                 println!("Fatal error: encountered unadjusted 0xCB literal!");
                 opname = String::from("PREFIX CB");
                 quit = true;
+            },
+            0xCD => {
+                opname = String::from("CALL a16");
+                opsize = 3;
+                let next_addr = self.regs.pc + opsize as u16;
+                self.call(operand16, next_addr);
+                jump = true;
+                cycles += 24;
             },
             0xE0 => {
                 opname = String::from("LDH (a8),A");
@@ -610,7 +629,7 @@ impl CPU {
             }
         }
 
-        self.print_instruction_debug(opname.as_str(), cycles, self.regs.pc, opsize);
+        self.print_instruction_debug(opname.as_str(), cycles, old_pc, opsize);
 
         // Standard PC increment, a single instruction
         if !jump {
