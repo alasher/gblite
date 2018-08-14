@@ -8,22 +8,24 @@ struct Flags {
 }
 
 struct DoubleRegister {
-    lo: u8,
-    hi: u8
+    a: u8,
+    b: u8
 }
 
 impl DoubleRegister {
-    fn get_lo(&self) -> u8 { self.lo }
-    fn set_lo(&mut self, val: u8) { self.lo = val; }
-    fn get_hi(&self) -> u8 { self.hi }
-    fn set_hi(&mut self, val: u8) { self.hi = val; }
+    fn get_first(&self) -> u8 { self.a }
+    fn set_first(&mut self, val: u8) { self.a = val; }
+    fn get_second(&self) -> u8 { self.b }
+    fn set_second(&mut self, val: u8) { self.b = val; }
 
     fn get_double(&self) -> u16 {
-        (u16::from(self.get_hi()) << 8) | u16::from(self.get_lo())
+        (((self.get_first() as u16) << 8) | self.get_second() as u16)
     }
+
+    // BC <- 0xFF11 means (B = 0xFF, C = 0x11)
     fn set_double(&mut self, val: u16) {
-        self.lo = (val & 0xFF) as u8;
-        self.hi = (val >> 8)   as u8;
+        self.a = (val >> 8)   as u8;
+        self.b = (val & 0xFF) as u8;
     }
 }
 
@@ -42,9 +44,9 @@ impl Registers {
         Registers {
             a: 0x0,
             f: Flags{zero: false, was_sub: false, half_carry: false, carry: false},
-            bc: DoubleRegister{lo: 0x0, hi: 0x0},
-            de: DoubleRegister{lo: 0x0, hi: 0x0},
-            hl: DoubleRegister{lo: 0x0, hi: 0x0},
+            bc: DoubleRegister{a: 0x0, b: 0x0},
+            de: DoubleRegister{a: 0x0, b: 0x0},
+            hl: DoubleRegister{a: 0x0, b: 0x0},
             sp: 0x0,
             pc: 0x0
         }
@@ -52,19 +54,19 @@ impl Registers {
 
     // Get/Set for 8-bit registers
     pub fn get_a(&self) -> u8 { self.a }
-    pub fn get_b(&self) -> u8 { self.bc.get_lo() }
-    pub fn get_c(&self) -> u8 { self.bc.get_hi() }
-    pub fn get_d(&self) -> u8 { self.de.get_lo() }
-    pub fn get_e(&self) -> u8 { self.de.get_hi() }
-    pub fn get_h(&self) -> u8 { self.hl.get_lo() }
-    pub fn get_l(&self) -> u8 { self.hl.get_hi() }
+    pub fn get_b(&self) -> u8 { self.bc.get_first() }
+    pub fn get_c(&self) -> u8 { self.bc.get_second() }
+    pub fn get_d(&self) -> u8 { self.de.get_first() }
+    pub fn get_e(&self) -> u8 { self.de.get_second() }
+    pub fn get_h(&self) -> u8 { self.hl.get_first() }
+    pub fn get_l(&self) -> u8 { self.hl.get_second() }
     pub fn set_a(&mut self, val: u8) { self.a = val; }
-    pub fn set_b(&mut self, val: u8) { self.bc.set_lo(val); }
-    pub fn set_c(&mut self, val: u8) { self.bc.set_hi(val); }
-    pub fn set_d(&mut self, val: u8) { self.de.set_lo(val); }
-    pub fn set_e(&mut self, val: u8) { self.de.set_hi(val); }
-    pub fn set_h(&mut self, val: u8) { self.hl.set_lo(val); }
-    pub fn set_l(&mut self, val: u8) { self.hl.set_hi(val); }
+    pub fn set_b(&mut self, val: u8) { self.bc.set_first(val); }
+    pub fn set_c(&mut self, val: u8) { self.bc.set_second(val); }
+    pub fn set_d(&mut self, val: u8) { self.de.set_first(val); }
+    pub fn set_e(&mut self, val: u8) { self.de.set_second(val); }
+    pub fn set_h(&mut self, val: u8) { self.hl.set_first(val); }
+    pub fn set_l(&mut self, val: u8) { self.hl.set_second(val); }
 
     // Get/Set for 16-bit registers
     pub fn get_sp(&self) -> u16 { self.sp }
@@ -102,33 +104,45 @@ impl CPU {
         self.regs.get_pc()
     }
 
-    fn parse_u16(&self, iaddr: u16) -> u16 {
-        ((self.mem.get(iaddr+1) as u16) << 8) | self.mem.get(iaddr) as u16
+    // Get the u16 value starting at $(addr), little endian.
+    fn parse_u16(&self, addr: u16) -> u16 {
+        ((self.mem.get(addr+1) as u16) << 8) | self.mem.get(addr) as u16
     }
 
-    // Utility function to split a two byte dword into a two-byte pair. Little end is first.
+    // Utility function to split a two byte dword into a two-byte pair, little endian.
     // Ex: 0xFF11 -> (0x11, 0xFF)
     fn split_u16(dword: u16) -> (u8, u8) {
         ((dword & 0xFF) as u8, (dword >> 8) as u8)
     }
 
-    // Push next_addr to stack, and jump to the jump_addr
-    fn call(&mut self, jump_addr: u16, next_addr: u16) {
+    // Push addr to stack
+    fn push(&mut self, addr: u16) {
+        let split_addr = CPU::split_u16(addr);
         self.regs.sp -= 2;
-        let split_addr = CPU::split_u16(next_addr);
         self.mem.set(split_addr.0, self.regs.sp);
         self.mem.set(split_addr.1, self.regs.sp+1);
+    }
+
+    // Pop topmost u16 value from stack
+    fn pop(&mut self) -> u16 {
+        let stack_val = self.parse_u16(self.regs.sp);
+        self.regs.sp += 2;
+        stack_val
+    }
+
+    // Push next_addr to stack, and jump to the jump_addr
+    fn call(&mut self, jump_addr: u16, next_addr: u16) {
+        self.push(next_addr);
         self.regs.pc = jump_addr;
         self.jumped = true;
     }
 
     // Pop the topmost address from the stack, and jump to it.
     fn ret(&mut self) {
-        let addr = self.parse_u16(self.regs.sp);
-        self.regs.sp += 2;
-        self.regs.pc = addr;
+        self.regs.pc = self.pop();
         self.jumped = true;
     }
+
 
     // Jump relative to current PC, where offset is twos-complement 8-bit signed int.
     fn jump_relative(&mut self, offset: u8) {
@@ -599,12 +613,24 @@ impl CPU {
                 let r = self.regs.get_a();
                 self.regs.set_a(r);
             },
+            0xC1 => {
+                opname = String::from("POP BC");
+                let val = self.pop();
+                self.regs.set_bc(val);
+                cycles = 12;
+            },
             0xC3 => {
                 opname = String::from("JP a16");
                 self.regs.pc = operand16;
                 self.jumped = true;
                 cycles = 16;
                 opsize = 3;
+            },
+            0xC5 => {
+                opname = String::from("PUSH BC");
+                let reg = self.regs.get_bc();
+                self.push(reg);
+                cycles = 16;
             },
             0xCB => {
                 // This should never happen, we should always append the prefix after CB, ex: 0xCB01
@@ -624,6 +650,18 @@ impl CPU {
                 self.ret();
                 cycles = 16;
             },
+            0xD1 => {
+                opname = String::from("POP DE");
+                let val = self.pop();
+                self.regs.set_de(val);
+                cycles = 12;
+            },
+            0xD5 => {
+                opname = String::from("PUSH DE");
+                let reg = self.regs.get_de();
+                self.push(reg);
+                cycles = 16;
+            },
             0xD9 => {
                 opname = String::from("RETI");
                 self.ret();
@@ -635,6 +673,12 @@ impl CPU {
                 self.mem.set(self.regs.get_a(), 0xFF00 + (operand8 as u16));
                 cycles = 12;
                 opsize = 2;
+            },
+            0xE1 => {
+                opname = String::from("POP HL");
+                let val = self.pop();
+                self.regs.set_hl(val);
+                cycles = 12;
             },
             0xE2 => {
                 opname = String::from("LD (C),A");
@@ -648,6 +692,12 @@ impl CPU {
                 self.mem.set(self.regs.get_a(), operand16);
                 cycles = 16;
                 opsize = 3;
+            },
+            0xE5 => {
+                opname = String::from("PUSH HL");
+                let reg = self.regs.get_hl();
+                self.push(reg);
+                cycles = 16;
             },
             0xF0 => {
                 opname = String::from("LDH A,(a8)");
