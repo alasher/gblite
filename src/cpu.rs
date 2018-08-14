@@ -1,11 +1,11 @@
 use memory::Memory;
 
-struct Flags {
-    zero: bool,
-    was_sub: bool,
-    half_carry: bool,
-    carry: bool
-}
+// struct Flags {
+//     zero: bool,
+//     was_sub: bool,
+//     half_carry: bool,
+//     carry: bool
+// }
 
 struct DoubleRegister {
     a: u8,
@@ -30,8 +30,7 @@ impl DoubleRegister {
 }
 
 struct Registers {
-    a:  u8,
-    f:  Flags,
+    af: DoubleRegister,
     bc: DoubleRegister,
     de: DoubleRegister,
     hl: DoubleRegister,
@@ -42,8 +41,7 @@ struct Registers {
 impl Registers {
     pub fn new() -> Registers {
         Registers {
-            a: 0x0,
-            f: Flags{zero: false, was_sub: false, half_carry: false, carry: false},
+            af: DoubleRegister{a: 0x0, b: 0x0},
             bc: DoubleRegister{a: 0x0, b: 0x0},
             de: DoubleRegister{a: 0x0, b: 0x0},
             hl: DoubleRegister{a: 0x0, b: 0x0},
@@ -53,14 +51,15 @@ impl Registers {
     }
 
     // Get/Set for 8-bit registers
-    pub fn get_a(&self) -> u8 { self.a }
+    // TODO: Implement getters for flags
+    pub fn get_a(&self) -> u8 { self.af.get_first() }
     pub fn get_b(&self) -> u8 { self.bc.get_first() }
     pub fn get_c(&self) -> u8 { self.bc.get_second() }
     pub fn get_d(&self) -> u8 { self.de.get_first() }
     pub fn get_e(&self) -> u8 { self.de.get_second() }
     pub fn get_h(&self) -> u8 { self.hl.get_first() }
     pub fn get_l(&self) -> u8 { self.hl.get_second() }
-    pub fn set_a(&mut self, val: u8) { self.a = val; }
+    pub fn set_a(&mut self, val: u8) { self.af.set_first(val); }
     pub fn set_b(&mut self, val: u8) { self.bc.set_first(val); }
     pub fn set_c(&mut self, val: u8) { self.bc.set_second(val); }
     pub fn set_d(&mut self, val: u8) { self.de.set_first(val); }
@@ -69,13 +68,11 @@ impl Registers {
     pub fn set_l(&mut self, val: u8) { self.hl.set_second(val); }
 
     // Get/Set for 16-bit registers
-    pub fn get_sp(&self) -> u16 { self.sp }
-    pub fn get_pc(&self) -> u16 { self.pc }
+    pub fn get_af(&self) -> u16 { self.af.get_double() }
     pub fn get_bc(&self) -> u16 { self.bc.get_double() }
     pub fn get_de(&self) -> u16 { self.de.get_double() }
     pub fn get_hl(&self) -> u16 { self.hl.get_double() }
-    pub fn set_sp(&mut self, val: u16) { self.sp = val; }
-    pub fn set_pc(&mut self, val: u16) { self.pc = val; }
+    pub fn set_af(&mut self, val: u16) { self.bc.set_double(val); }
     pub fn set_bc(&mut self, val: u16) { self.bc.set_double(val); }
     pub fn set_de(&mut self, val: u16) { self.de.set_double(val); }
     pub fn set_hl(&mut self, val: u16) { self.hl.set_double(val); }
@@ -101,7 +98,7 @@ impl CPU {
     }
 
     pub fn get_pc(&self) -> u16 {
-        self.regs.get_pc()
+        self.regs.pc
     }
 
     // Get the u16 value starting at $(addr), little endian.
@@ -147,7 +144,7 @@ impl CPU {
     // Jump relative to current PC, where offset is twos-complement 8-bit signed int.
     fn jump_relative(&mut self, offset: u8) {
         let addr = self.regs.pc as i32;
-        let addr = addr + (offset as i8) as i32;
+        let addr = addr + (offset as i8) as i32 + 2;
         if addr < 0 || addr > 0xFFFF {
             println!("Fatal error: jumped out-of-bounds!");
             self.quit = true;
@@ -207,11 +204,59 @@ impl CPU {
                 cycles = 12;
                 opsize = 3;
             },
+            0x02 => {
+                opname = String::from("LD (BC),A");
+                let r = self.regs.get_a();
+                self.mem.set(r, self.regs.get_bc());
+                cycles = 8;
+            },
+            0x03 => {
+                opname = String::from("INC BC");
+                let val = self.regs.get_bc() + 1;
+                self.regs.set_bc(val);
+                cycles = 8;
+            },
+            0x04 => {
+                opname = String::from("INC B");
+                let val = self.regs.get_b();
+                self.regs.set_b(val + 1);
+                cycles = 4;
+            },
+            0x05 => {
+                opname = String::from("DEC B");
+                let val = self.regs.get_b();
+                self.regs.set_b(val - 1);
+                cycles = 4;
+            },
             0x06 => {
                 opname = String::from("LD B,d8");
                 self.regs.set_b(operand8);
                 cycles = 8;
                 opsize = 2;
+            },
+            0x0A => {
+                opname = String::from("LD A,(BC)");
+                let r = self.mem.get(self.regs.get_bc());
+                self.regs.set_a(r);
+                cycles = 8;
+            },
+            0x0B => {
+                opname = String::from("DEC BC");
+                let val = self.regs.get_bc() - 1;
+                self.regs.set_bc(val);
+                cycles = 8;
+            },
+            0x0C => {
+                opname = String::from("INC C");
+                let val = self.regs.get_c();
+                self.regs.set_c(val + 1);
+                cycles = 4;
+            },
+            0x0D => {
+                opname = String::from("DEC C");
+                let val = self.regs.get_c();
+                self.regs.set_c(val - 1);
+                cycles = 4;
             },
             0x0E => {
                 opname = String::from("LD C,d8");
@@ -219,11 +264,41 @@ impl CPU {
                 cycles = 8;
                 opsize = 2;
             },
+            0x10 => {
+                opname = String::from("STOP");
+                cycles = 4;
+                println!("Received STOP instruction, terminating.");
+                self.quit = true;
+            },
             0x11 => {
                 opname = String::from("LD DE,d16");
                 self.regs.set_de(operand16);
                 cycles = 12;
                 opsize = 3;
+            },
+            0x12 => {
+                opname = String::from("LD (DE),A");
+                let r = self.regs.get_a();
+                self.mem.set(r, self.regs.get_de());
+                cycles = 8;
+            },
+            0x13 => {
+                opname = String::from("INC DE");
+                let val = self.regs.get_de() + 1;
+                self.regs.set_de(val);
+                cycles = 8;
+            },
+            0x14 => {
+                opname = String::from("INC D");
+                let val = self.regs.get_d();
+                self.regs.set_d(val + 1);
+                cycles = 4;
+            },
+            0x15 => {
+                opname = String::from("DEC D");
+                let val = self.regs.get_d();
+                self.regs.set_d(val - 1);
+                cycles = 4;
             },
             0x16 => {
                 opname = String::from("LD D,d8");
@@ -237,6 +312,30 @@ impl CPU {
                 cycles = 12;
                 opsize = 2;
             },
+            0x1B => {
+                opname = String::from("DEC DE");
+                let val = self.regs.get_de() - 1;
+                self.regs.set_de(val);
+                cycles = 8;
+            },
+            0x1A => {
+                opname = String::from("LD A,(DE)");
+                let r = self.mem.get(self.regs.get_de());
+                self.regs.set_a(r);
+                cycles = 8;
+            },
+            0x1C => {
+                opname = String::from("INC E");
+                let val = self.regs.get_e();
+                self.regs.set_e(val + 1);
+                cycles = 4;
+            },
+            0x1D => {
+                opname = String::from("DEC E");
+                let val = self.regs.get_e();
+                self.regs.set_e(val - 1);
+                cycles = 4;
+            },
             0x1E => {
                 opname = String::from("LD E,d8");
                 self.regs.set_e(operand8);
@@ -249,11 +348,63 @@ impl CPU {
                 cycles = 12;
                 opsize = 3;
             },
+            0x22 => {
+                opname = String::from("LD (HL+),A");
+                let addr = self.regs.get_hl();
+                let r = self.regs.get_a();
+                self.mem.set(r, addr);
+                self.regs.set_hl(addr + 1);
+                cycles = 8;
+            },
+            0x23 => {
+                opname = String::from("INC HL");
+                let val = self.regs.get_hl() + 1;
+                self.regs.set_hl(val);
+                cycles = 8;
+            },
+            0x24 => {
+                opname = String::from("INC H");
+                let val = self.regs.get_h();
+                self.regs.set_h(val + 1);
+                cycles = 4;
+            },
+            0x25 => {
+                opname = String::from("DEC H");
+                let val = self.regs.get_h();
+                self.regs.set_h(val - 1);
+                cycles = 4;
+            },
             0x26 => {
                 opname = String::from("LD H,d8");
                 self.regs.set_h(operand8);
                 cycles = 8;
                 opsize = 2;
+            },
+            0x2A => {
+                opname = String::from("LD A,(HL+)");
+                let addr = self.regs.get_hl();
+                let r = self.mem.get(addr);
+                self.regs.set_a(r);
+                self.regs.set_hl(addr + 1);
+                cycles = 8;
+            },
+            0x2B => {
+                opname = String::from("DEC HL");
+                let val = self.regs.get_hl() - 1;
+                self.regs.set_hl(val);
+                cycles = 8;
+            },
+            0x2C => {
+                opname = String::from("INC L");
+                let val = self.regs.get_l();
+                self.regs.set_l(val + 1);
+                cycles = 4;
+            },
+            0x2D => {
+                opname = String::from("DEC L");
+                let val = self.regs.get_l();
+                self.regs.set_l(val - 1);
+                cycles = 4;
             },
             0x2E => {
                 opname = String::from("LD L,d8");
@@ -263,15 +414,67 @@ impl CPU {
             },
             0x31 => {
                 opname = String::from("LD SP,d16");
-                self.regs.set_sp(operand16);
+                self.regs.sp = operand16;
                 cycles = 12;
                 opsize = 3;
+            },
+            0x32 => {
+                opname = String::from("LD (HL-),A");
+                let addr = self.regs.get_hl();
+                let r = self.regs.get_a();
+                self.mem.set(r, addr);
+                self.regs.set_hl(addr - 1);
+                cycles = 8;
+            },
+            0x33 => {
+                opname = String::from("INC SP");
+                self.regs.sp += 1;
+                cycles = 8;
+            },
+            0x34 => {
+                opname = String::from("INC (HL)");
+                let addr = self.regs.get_hl();
+                let val = self.mem.get(addr);
+                self.mem.set(val + 1, addr);
+                cycles = 4;
+            },
+            0x35 => {
+                opname = String::from("DEC (HL)");
+                let addr = self.regs.get_hl();
+                let val = self.mem.get(addr);
+                self.mem.set(val - 1, addr);
+                cycles = 4;
             },
             0x36 => {
                 opname = String::from("LD (hl),d8");
                 self.mem.set(operand8, self.regs.get_hl());
                 cycles = 12;
                 opsize = 2;
+            },
+            0x3A => {
+                opname = String::from("LD A,(HL-)");
+                let addr = self.regs.get_hl();
+                let r = self.mem.get(addr);
+                self.regs.set_a(r);
+                self.regs.set_hl(addr - 1);
+                cycles = 8;
+            },
+            0x3B => {
+                opname = String::from("DEC SP");
+                self.regs.sp -= 1;
+                cycles = 8;
+            },
+            0x3C => {
+                opname = String::from("INC A");
+                let val = self.regs.get_a();
+                self.regs.set_a(val + 1);
+                cycles = 4;
+            },
+            0x3D => {
+                opname = String::from("DEC A");
+                let val = self.regs.get_a();
+                self.regs.set_a(val - 1);
+                cycles = 4;
             },
             0x3E => {
                 opname = String::from("LD A,d8");
@@ -632,6 +835,17 @@ impl CPU {
                 self.push(reg);
                 cycles = 16;
             },
+            0xC7 => {
+                opname = String::from("RST 00H");
+                let next_addr = self.regs.pc + 1;
+                self.call(0x00, next_addr);
+                cycles = 16;
+            },
+            0xC9 => {
+                opname = String::from("RET");
+                self.ret();
+                cycles = 16;
+            },
             0xCB => {
                 // This should never happen, we should always append the prefix after CB, ex: 0xCB01
                 println!("Fatal error: encountered unadjusted 0xCB literal!");
@@ -645,9 +859,10 @@ impl CPU {
                 self.call(operand16, next_addr);
                 cycles = 24;
             },
-            0xC9 => {
-                opname = String::from("RET");
-                self.ret();
+            0xCF => {
+                opname = String::from("RST 08H");
+                let next_addr = self.regs.pc + 1;
+                self.call(0x08, next_addr);
                 cycles = 16;
             },
             0xD1 => {
@@ -662,10 +877,22 @@ impl CPU {
                 self.push(reg);
                 cycles = 16;
             },
+            0xD7 => {
+                opname = String::from("RST 10H");
+                let next_addr = self.regs.pc + 1;
+                self.call(0x10, next_addr);
+                cycles = 16;
+            },
             0xD9 => {
                 opname = String::from("RETI");
                 self.ret();
                 self.ir_enabled = true;
+                cycles = 16;
+            },
+            0xDF => {
+                opname = String::from("RST 18H");
+                let next_addr = self.regs.pc + 1;
+                self.call(0x18, next_addr);
                 cycles = 16;
             },
             0xE0 => {
@@ -687,6 +914,12 @@ impl CPU {
                 cycles = 8;
                 opsize = 2;
             },
+            0xE7 => {
+                opname = String::from("RST 20H");
+                let next_addr = self.regs.pc + 1;
+                self.call(0x20, next_addr);
+                cycles = 16;
+            },
             0xEA => {
                 opname = String::from("LD (a16),A");
                 self.mem.set(self.regs.get_a(), operand16);
@@ -699,11 +932,23 @@ impl CPU {
                 self.push(reg);
                 cycles = 16;
             },
+            0xEF => {
+                opname = String::from("RST 28H");
+                let next_addr = self.regs.pc + 1;
+                self.call(0x28, next_addr);
+                cycles = 16;
+            },
             0xF0 => {
                 opname = String::from("LDH A,(a8)");
                 self.regs.set_a(self.mem.get(0xFF00 + (operand8 as u16)));
                 cycles = 12;
                 opsize = 2;
+            },
+            0xF1 => {
+                opname = String::from("POP AF");
+                let val = self.pop();
+                self.regs.set_af(val);
+                cycles = 12;
             },
             0xF2 => {
                 opname = String::from("LD (C),A");
@@ -725,6 +970,24 @@ impl CPU {
             0xFB => {
                 opname = String::from("EI");
                 self.ir_enabled = true;
+            },
+            0xF5 => {
+                opname = String::from("PUSH AF");
+                let reg = self.regs.get_af();
+                self.push(reg);
+                cycles = 16;
+            },
+            0xF7 => {
+                opname = String::from("RST 30H");
+                let next_addr = self.regs.pc + 1;
+                self.call(0x30, next_addr);
+                cycles = 16;
+            },
+            0xFF => {
+                opname = String::from("RST 38H");
+                let next_addr = self.regs.pc + 1;
+                self.call(0x38, next_addr);
+                cycles = 16;
             },
             _ => {
                 println!("Fatal error: undefined instruction!");
