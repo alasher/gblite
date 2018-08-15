@@ -1,4 +1,5 @@
 use memory::Memory;
+use util;
 
 // struct Flags {
 //     zero: bool,
@@ -51,7 +52,6 @@ impl Registers {
     }
 
     // Get/Set for 8-bit registers
-    // TODO: Implement getters for flags
     pub fn get_a(&self) -> u8 { self.af.get_first() }
     pub fn get_b(&self) -> u8 { self.bc.get_first() }
     pub fn get_c(&self) -> u8 { self.bc.get_second() }
@@ -76,6 +76,23 @@ impl Registers {
     pub fn set_bc(&mut self, val: u16) { self.bc.set_double(val); }
     pub fn set_de(&mut self, val: u16) { self.de.set_double(val); }
     pub fn set_hl(&mut self, val: u16) { self.hl.set_double(val); }
+
+    // Getters/setters for Flags
+    fn get_flag(&self, fid: u8) -> bool {
+        util::is_bit_set(self.af.b, fid)
+    }
+    fn set_flag(&mut self, val: bool, fid: u8) {
+        self.af.b = util::set_bit(self.af.b, fid, val);
+    }
+    pub fn get_z(&self)  -> bool { self.get_flag(7) }
+    pub fn get_n(&self)  -> bool { self.get_flag(6) }
+    pub fn get_hc(&self)  -> bool { self.get_flag(5) }
+    pub fn get_cy(&self) -> bool { self.get_flag(4) }
+    pub fn set_z(&mut self,  val: bool) { self.set_flag(val, 7); }
+    pub fn set_n(&mut self,  val: bool) { self.set_flag(val, 6); }
+    pub fn set_hc(&mut self,  val: bool) { self.set_flag(val, 5); }
+    pub fn set_cy(&mut self, val: bool) { self.set_flag(val, 4); }
+
 }
 
 pub struct CPU {
@@ -106,15 +123,9 @@ impl CPU {
         ((self.mem.get(addr+1) as u16) << 8) | self.mem.get(addr) as u16
     }
 
-    // Utility function to split a two byte dword into a two-byte pair, little endian.
-    // Ex: 0xFF11 -> (0x11, 0xFF)
-    fn split_u16(dword: u16) -> (u8, u8) {
-        ((dword & 0xFF) as u8, (dword >> 8) as u8)
-    }
-
     // Push addr to stack
     fn push(&mut self, addr: u16) {
-        let split_addr = CPU::split_u16(addr);
+        let split_addr = util::split_u16(addr);
         self.regs.sp -= 2;
         self.mem.set(split_addr.0, self.regs.sp);
         self.mem.set(split_addr.1, self.regs.sp+1);
@@ -139,7 +150,6 @@ impl CPU {
         self.regs.pc = self.pop();
         self.jumped = true;
     }
-
 
     // Jump relative to current PC, where offset is twos-complement 8-bit signed int.
     fn jump_relative(&mut self, offset: u8) {

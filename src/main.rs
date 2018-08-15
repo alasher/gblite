@@ -1,5 +1,6 @@
 mod cpu;
 mod memory;
+mod util;
 
 fn main() {
     let args: Vec<String> = std::env::args().collect();
