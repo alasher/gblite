@@ -1,5 +1,9 @@
 // Split a two byte dword into a two-byte pair, little endian.
 // Ex: 0xFF11 -> (0x11, 0xFF)
+pub fn join_u8(pair: (u8, u8)) -> u16 {
+    pair.0 as u16 | ((pair.1 as u16) << 8)
+}
+
 pub fn split_u16(dword: u16) -> (u8, u8) {
     ((dword & 0xFF) as u8, (dword >> 8) as u8)
 }

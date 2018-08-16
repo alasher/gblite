@@ -95,6 +95,17 @@ impl Registers {
 
 }
 
+enum AluOp {
+    Add,
+    AddCarry,
+    Sub,
+    SubCarry,
+    And,
+    Xor,
+    Or,
+    Comp
+}
+
 pub struct CPU {
     regs: Registers,
     mem: Memory,
@@ -120,7 +131,7 @@ impl CPU {
 
     // Get the u16 value starting at $(addr), little endian.
     fn parse_u16(&self, addr: u16) -> u16 {
-        ((self.mem.get(addr+1) as u16) << 8) | self.mem.get(addr) as u16
+        util::join_u8((self.mem.get(addr), self.mem.get(addr+1)))
     }
 
     // Push addr to stack
@@ -165,15 +176,29 @@ impl CPU {
         self.jumped = true;
     }
 
-    fn print_instruction_debug(&self, opname: &str, ncycles: u8, old_pc: u16, opsize: u8) {
-        let mut pstr = format!("0x{:04x}: {} - {} cycles", old_pc, opname, ncycles);
-        if opsize > 1 {
-            pstr += " - operands: ";
-            for i in 1..opsize {
-                pstr += &format!("0x{:02x} ", self.mem.get(old_pc + i as u16));
+    // Perform given ALU instruction with the given argument
+    fn alu(&mut self, op: AluOp, val: u8) {
+        let a = self.regs.get_a();
+        let cy = if self.regs.get_cy() { 1 } else { 0 };
+        let result = match op {
+            AluOp::Add      => a + val,
+            AluOp::AddCarry => a + val + cy,
+            AluOp::Sub      => a - val,
+            AluOp::SubCarry => a - val - cy,
+            AluOp::And      => a & val,
+            AluOp::Xor      => a ^ val,
+            AluOp::Or       => a | val,
+            AluOp::Comp     => !val,
+            _ => {
+                println!("Fatal error: received invalid ALU operation!");
+                self.quit = true;
+                a
             }
-        }
-        println!("{}", pstr);
+        };
+
+        self.regs.set_a(result);
+
+        // TODO: Add flag mods here
     }
 
     // Run the instruction at the current PC, return true if successful.
@@ -203,7 +228,6 @@ impl CPU {
             opcode
         };
 
-        // TODO: Finish adding instructions below
         match opcode {
             0x00 => {
                 opname = String::from("NOP");
@@ -1015,5 +1039,16 @@ impl CPU {
 
 
         !self.quit
+    }
+
+    fn print_instruction_debug(&self, opname: &str, ncycles: u8, old_pc: u16, opsize: u8) {
+        let mut pstr = format!("0x{:04x}: {} - {} cycles", old_pc, opname, ncycles);
+        if opsize > 1 {
+            pstr += " - operands: ";
+            for i in 1..opsize {
+                pstr += &format!("0x{:02x} ", self.mem.get(old_pc + i as u16));
+            }
+        }
+        println!("{}", pstr);
     }
 }
