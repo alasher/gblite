@@ -1,5 +1,6 @@
 use memory::Memory;
 use util;
+use lookup;
 
 // struct Flags {
 //     zero: bool,
@@ -220,13 +221,16 @@ impl CPU {
         // Adjust opcode if it's a 0xCB prefixed instruction
         let opcode = if opcode == 0xCB {
             self.regs.pc += 1;
-            let newop = (opcode << 2) + operand8;
+            let newop = 0xCB as u16 | operand8 as u16;
             let operand8  = self.mem.get(self.regs.pc+1);
             let operand16 = self.mem.get(self.regs.pc+2);
             newop
         } else {
-            opcode
+            opcode as u16
         };
+
+        let ins = lookup::get_instruction(opcode);
+        println!("Received instruction: {}", ins.name);
 
         match opcode {
             0x00 => {
