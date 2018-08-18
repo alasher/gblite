@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 // Split a two byte dword into a two-byte pair, little endian.
 // Ex: 0xFF11 -> (0x11, 0xFF)
 pub fn join_u8(pair: (u8, u8)) -> u16 {

@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 pub enum FlagMod {
     Ignore,
     Eval,
@@ -1837,7 +1839,7 @@ pub fn get_instruction(opcode: u16) -> Instruction {
         0xc9 => Instruction {
             opcode: 0xc9,
             prefix_cb: false,
-            name: String::from("ET"),
+            name: String::from("RET"),
             bytes: 1,
             clocks: 16,
             clocks_extra: 0,

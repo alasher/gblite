@@ -1,3 +1,5 @@
+#![allow(dead_code)]
+
 /*
 TODO: Here we should handle rom-bank switching. When we specify an address between [0x4000, 0x8000)
       we need to return the data in the appropriate ROM bank. How do we know which one that is?
