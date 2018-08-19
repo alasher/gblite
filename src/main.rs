@@ -1,3 +1,4 @@
+mod registers;
 mod cpu;
 mod memory;
 mod util;
@@ -30,6 +31,7 @@ fn main() {
         } else {
             last_pc = z80.get_pc();
         }
+
         if loop_cnt >= 20 {
             // Just a really simple loop detector, since apparently Ctrl+C isn't a thing in Rust?
             println!("Fatal error: stuck in a single-instruction loop.");

@@ -2,112 +2,11 @@
 
 use memory::Memory;
 use lookup::Instruction;
+use registers::RegisterCache;
+use registers::Reg16;
+use registers::RegOps;
 use util;
 use lookup;
-
-pub enum Reg {
-    A,
-    F,
-    B,
-    C,
-    D,
-    E,
-    H,
-    L,
-    AF,
-    BC,
-    DE,
-    HL,
-    SP,
-    PC
-}
-
-struct DoubleRegister {
-    a: u8,
-    b: u8
-}
-
-impl DoubleRegister {
-    fn get_first(&self) -> u8 { self.a }
-    fn set_first(&mut self, val: u8) { self.a = val; }
-    fn get_second(&self) -> u8 { self.b }
-    fn set_second(&mut self, val: u8) { self.b = val; }
-
-    fn get_double(&self) -> u16 {
-        (((self.get_first() as u16) << 8) | self.get_second() as u16)
-    }
-
-    // BC <- 0xFF11 means (B = 0xFF, C = 0x11)
-    fn set_double(&mut self, val: u16) {
-        self.a = (val >> 8)   as u8;
-        self.b = (val & 0xFF) as u8;
-    }
-}
-
-struct RegisterCache {
-    af: DoubleRegister,
-    bc: DoubleRegister,
-    de: DoubleRegister,
-    hl: DoubleRegister,
-    sp: u16,
-    pc: u16
-}
-
-impl RegisterCache {
-    pub fn new() -> RegisterCache {
-        RegisterCache {
-            af: DoubleRegister{a: 0x0, b: 0x0},
-            bc: DoubleRegister{a: 0x0, b: 0x0},
-            de: DoubleRegister{a: 0x0, b: 0x0},
-            hl: DoubleRegister{a: 0x0, b: 0x0},
-            sp: 0x0,
-            pc: 0x0
-        }
-    }
-
-    // Get/Set for 8-bit registers
-    pub fn get_a(&self) -> u8 { self.af.get_first() }
-    pub fn get_b(&self) -> u8 { self.bc.get_first() }
-    pub fn get_c(&self) -> u8 { self.bc.get_second() }
-    pub fn get_d(&self) -> u8 { self.de.get_first() }
-    pub fn get_e(&self) -> u8 { self.de.get_second() }
-    pub fn get_h(&self) -> u8 { self.hl.get_first() }
-    pub fn get_l(&self) -> u8 { self.hl.get_second() }
-    pub fn set_a(&mut self, val: u8) { self.af.set_first(val); }
-    pub fn set_b(&mut self, val: u8) { self.bc.set_first(val); }
-    pub fn set_c(&mut self, val: u8) { self.bc.set_second(val); }
-    pub fn set_d(&mut self, val: u8) { self.de.set_first(val); }
-    pub fn set_e(&mut self, val: u8) { self.de.set_second(val); }
-    pub fn set_h(&mut self, val: u8) { self.hl.set_first(val); }
-    pub fn set_l(&mut self, val: u8) { self.hl.set_second(val); }
-
-    // Get/Set for 16-bit registers
-    pub fn get_af(&self) -> u16 { self.af.get_double() }
-    pub fn get_bc(&self) -> u16 { self.bc.get_double() }
-    pub fn get_de(&self) -> u16 { self.de.get_double() }
-    pub fn get_hl(&self) -> u16 { self.hl.get_double() }
-    pub fn set_af(&mut self, val: u16) { self.bc.set_double(val); }
-    pub fn set_bc(&mut self, val: u16) { self.bc.set_double(val); }
-    pub fn set_de(&mut self, val: u16) { self.de.set_double(val); }
-    pub fn set_hl(&mut self, val: u16) { self.hl.set_double(val); }
-
-    // Getters/setters for Flags
-    fn get_flag(&self, fid: u8) -> bool {
-        util::is_bit_set(self.af.b, fid)
-    }
-    fn set_flag(&mut self, val: bool, fid: u8) {
-        self.af.b = util::set_bit(self.af.b, fid, val);
-    }
-    pub fn get_z(&self)  -> bool { self.get_flag(7) }
-    pub fn get_n(&self)  -> bool { self.get_flag(6) }
-    pub fn get_hc(&self)  -> bool { self.get_flag(5) }
-    pub fn get_cy(&self) -> bool { self.get_flag(4) }
-    pub fn set_z(&mut self,  val: bool) { self.set_flag(val, 7); }
-    pub fn set_n(&mut self,  val: bool) { self.set_flag(val, 6); }
-    pub fn set_hc(&mut self,  val: bool) { self.set_flag(val, 5); }
-    pub fn set_cy(&mut self, val: bool) { self.set_flag(val, 4); }
-
-}
 
 enum AluOp {
     Add,
@@ -140,7 +39,7 @@ impl CPU {
     }
 
     pub fn get_pc(&self) -> u16 {
-        self.regs.pc
+        self.regs.get(Reg16::PC)
     }
 
     // Get the u16 value starting at $(addr), little endian.
@@ -151,35 +50,38 @@ impl CPU {
     // Push addr to stack
     fn push(&mut self, addr: u16) {
         let split_addr = util::split_u16(addr);
-        self.regs.sp -= 2;
-        self.mem.set(split_addr.0, self.regs.sp);
-        self.mem.set(split_addr.1, self.regs.sp+1);
+        let sp_val = self.regs.get(Reg16::SP)-2;
+        self.regs.set(Reg16::SP, sp_val);
+        self.mem.set(split_addr.0, sp_val);
+        self.mem.set(split_addr.1, sp_val+1);
     }
 
     // Pop topmost u16 value from stack
     fn pop(&mut self) -> u16 {
-        let stack_val = self.parse_u16(self.regs.sp);
-        self.regs.sp += 2;
+        let sp_val = self.regs.get(Reg16::SP);
+        let stack_val = self.parse_u16(sp_val);
+        self.regs.set(Reg16::SP, sp_val+2);
         stack_val
     }
 
     // Push next_addr to stack, and jump to the jump_addr
     fn call(&mut self, jump_addr: u16) {
-        let next_addr = self.regs.pc;
+        let next_addr = self.regs.get(Reg16::PC);
         self.push(next_addr);
-        self.regs.pc = jump_addr;
+        self.regs.set(Reg16::PC, jump_addr);
         self.jumped = true;
     }
 
     // Pop the topmost address from the stack, and jump to it.
     fn ret(&mut self) {
-        self.regs.pc = self.pop();
+        let next_addr = self.pop();
+        self.regs.set(Reg16::PC, next_addr);
         self.jumped = true;
     }
 
     // Jump relative to current PC, where offset is twos-complement 8-bit signed int.
     fn jump_relative(&mut self, offset: u8) {
-        let addr = self.regs.pc as i32;
+        let addr = self.regs.get(Reg16::PC) as i32;
         let addr = addr + (offset as i8) as i32;
         if addr < 0 || addr > 0xFFFF {
             println!("Fatal error: jumped out-of-bounds!");
@@ -187,14 +89,14 @@ impl CPU {
             return;
         }
 
-        self.regs.pc = addr as u16;
+        self.regs.set(Reg16::PC, addr as u16);
         self.jumped = true;
     }
 
     // Perform given ALU instruction with the given argument
     fn alu(&mut self, op: AluOp, val: u8) {
         let a = self.regs.get_a();
-        let cy = if self.regs.get_cy() { 1 } else { 0 };
+        let cy = 0; // TODO: Retrieve this from register cache
         let result = match op {
             AluOp::Add      => a + val,
             AluOp::AddCarry => a + val + cy,
@@ -214,18 +116,17 @@ impl CPU {
     // Run the instruction at the current PC, return true if successful.
     pub fn process(&mut self) -> bool {
         if self.quit { return false; }
-        let old_pc = self.regs.pc;
-        let opcode = self.mem.get(self.regs.pc);
-        let _operand8  = self.mem.get(self.regs.pc+1);
-        let _operand16 = self.parse_u16(self.regs.pc+1);
+        let old_pc = self.regs.get(Reg16::PC);
+        let opcode = self.mem.get(old_pc);
+        let _operand8  = self.mem.get(old_pc+1);
+        let _operand16 = self.parse_u16(old_pc+1);
         self.jumped = false;
 
         // Adjust opcode if it's a 0xCB prefixed instruction
         let opcode = if opcode == 0xCB {
-            self.regs.pc += 1;
             let newop = 0xCB as u16 | _operand8 as u16;
-            let _operand8  = self.mem.get(self.regs.pc+1);
-            let _operand16 = self.parse_u16(self.regs.pc+1);
+            let _operand8  = self.mem.get(old_pc+2);
+            let _operand16 = self.parse_u16(old_pc+2);
             newop
         } else {
             opcode as u16
@@ -235,7 +136,12 @@ impl CPU {
 
         // Increment PC before we process the instruction. During execution the current PC will
         // represent the next instruction to process.
-        self.regs.pc += inst.bytes as u16;
+        let mut bytes = inst.bytes as u16;
+        if inst.prefix_cb {
+            bytes += 1; // TODO: Fix this in the lookup table
+        }
+        self.regs.set(Reg16::PC, old_pc + bytes);
+
 
         match opcode {
             0x00 => (),
@@ -374,7 +280,7 @@ impl CPU {
                 self.regs.set_l(_operand8);
             },
             0x31 => {
-                self.regs.sp = _operand16;
+                self.regs.set(Reg16::SP, _operand16);
             },
             0x32 => {
                 let addr = self.regs.get_hl();
@@ -383,7 +289,8 @@ impl CPU {
                 self.regs.set_hl(addr - 1);
             },
             0x33 => {
-                self.regs.sp += 1;
+                let sp_val = self.regs.get(Reg16::SP);
+                self.regs.set(Reg16::SP, sp_val+1);
             },
             0x34 => {
                 let addr = self.regs.get_hl();
@@ -405,7 +312,8 @@ impl CPU {
                 self.regs.set_hl(addr - 1);
             },
             0x3B => {
-                self.regs.sp -= 1;
+                let sp_val = self.regs.get(Reg16::SP);
+                self.regs.set(Reg16::SP, sp_val-1);
             },
             0x3C => {
                 let val = self.regs.get_a();
@@ -679,7 +587,7 @@ impl CPU {
                 self.regs.set_bc(val);
             },
             0xC3 => {
-                self.regs.pc = _operand16;
+                self.regs.set(Reg16::PC, _operand16);
                 self.jumped = true;
             },
             0xC5 => {
