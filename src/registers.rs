@@ -1,5 +1,3 @@
-use util;
-
 pub enum Reg8 {
     A,
     B,
@@ -74,34 +72,6 @@ impl RegisterCache {
             pc: 0x0
         }
     }
-
-    // TODO: Remove these, in favor of new RegOps
-    pub fn get_a(&self) -> u8 { self.af.get_first() }
-    pub fn get_b(&self) -> u8 { self.bc.get_first() }
-    pub fn get_c(&self) -> u8 { self.bc.get_second() }
-    pub fn get_d(&self) -> u8 { self.de.get_first() }
-    pub fn get_e(&self) -> u8 { self.de.get_second() }
-    pub fn get_h(&self) -> u8 { self.hl.get_first() }
-    pub fn get_l(&self) -> u8 { self.hl.get_second() }
-    pub fn set_a(&mut self, val: u8) { self.af.set_first(val); }
-    pub fn set_b(&mut self, val: u8) { self.bc.set_first(val); }
-    pub fn set_c(&mut self, val: u8) { self.bc.set_second(val); }
-    pub fn set_d(&mut self, val: u8) { self.de.set_first(val); }
-    pub fn set_e(&mut self, val: u8) { self.de.set_second(val); }
-    pub fn set_h(&mut self, val: u8) { self.hl.set_first(val); }
-    pub fn set_l(&mut self, val: u8) { self.hl.set_second(val); }
-
-    // TODO: Remove these, in favor of new RegOps
-    pub fn get_af(&self) -> u16 { self.af.get_double() }
-    pub fn get_bc(&self) -> u16 { self.bc.get_double() }
-    pub fn get_de(&self) -> u16 { self.de.get_double() }
-    pub fn get_hl(&self) -> u16 { self.hl.get_double() }
-    pub fn set_af(&mut self, val: u16) { self.bc.set_double(val); }
-    pub fn set_bc(&mut self, val: u16) { self.bc.set_double(val); }
-    pub fn set_de(&mut self, val: u16) { self.de.set_double(val); }
-    pub fn set_hl(&mut self, val: u16) { self.hl.set_double(val); }
-
-    // TODO: Implement RegOps for Flags
 }
 
 impl RegOps<Reg8, u8> for RegisterCache {
