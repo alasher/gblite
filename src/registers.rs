@@ -1,3 +1,7 @@
+use std::ops::{Add, Sub};
+use std::marker::Copy;
+
+#[derive(Copy, Clone)]
 pub enum Reg8 {
     A,
     B,
@@ -8,6 +12,7 @@ pub enum Reg8 {
     L
 }
 
+#[derive(Copy, Clone)]
 pub enum Reg16 {
     AF,
     BC,
@@ -17,6 +22,7 @@ pub enum Reg16 {
     PC
 }
 
+#[derive(Copy, Clone)]
 pub enum Flag {
     Z,
     N,
@@ -24,10 +30,23 @@ pub enum Flag {
     CY
 }
 
-pub trait RegOps<R, T> {
+pub trait RegOps<R, T> where
+    R: Copy,
+    T: Add<Output = T> + Sub<Output = T> {
     fn get(&self, src: R) -> T;
     fn set(&mut self, dst: R, src: T);
-    fn copy(&mut self, dst: R, src: R);
+    fn copy(&mut self, dst: R, src: R) {
+       let tmp = self.get(src);
+       self.set(dst, tmp);
+    }
+    fn add(&mut self, dst: R, val: T) {
+        let tmp = self.get(dst) + val;
+        self.set(dst, tmp);
+    }
+    fn sub(&mut self, dst: R, val: T) {
+        let tmp = self.get(dst) - val;
+        self.set(dst, tmp);
+    }
 }
 
 struct DoubleRegister {
@@ -98,11 +117,6 @@ impl RegOps<Reg8, u8> for RegisterCache {
             Reg8::L => self.hl.set_second(src),
         }
     }
-
-    fn copy(&mut self, dst: Reg8, src: Reg8) {
-       let val = self.get(src);
-       self.set(dst, val);
-    }
 }
 
 impl RegOps<Reg16, u16> for RegisterCache {
@@ -126,10 +140,5 @@ impl RegOps<Reg16, u16> for RegisterCache {
             Reg16::SP => { self.sp = src; },
             Reg16::PC => { self.pc = src; }
         }
-    }
-
-    fn copy(&mut self, dst: Reg16, src: Reg16) {
-        let val = self.get(src);
-        self.set(dst, val);
     }
 }
