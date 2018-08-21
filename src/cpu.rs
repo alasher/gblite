@@ -91,6 +91,21 @@ impl CPU {
         self.regs.set(dst, val);
     }
 
+    // Copy value between A and (HL), then add or subtract HL.
+    fn ldd_special(&mut self, is_get: bool, is_add: bool) {
+        if is_get {
+            self.get_reg_ptr(Reg8::A, Reg16::HL); // LD A, (HL+/-)
+        } else {
+            self.set_reg_ptr(Reg16::HL, Reg8::A); // LD (HL+/-), A
+        }
+
+        if is_add {
+            self.regs.add(Reg16::HL, 1);
+        } else {
+            self.regs.sub(Reg16::HL, 1);
+        }
+    }
+
     // Jump relative to current PC, where offset is twos-complement 8-bit signed int.
     fn jump_relative(&mut self, offset: u8) {
         let addr = self.regs.get(Reg16::PC) as i32;
@@ -196,33 +211,18 @@ impl CPU {
             0x1D => self.regs.sub(Reg8::D, 1),
             0x1E => self.regs.set(Reg8::E, _operand8),
             0x21 => self.regs.set(Reg16::HL, _operand16),
-            0x22 => {
-                let addr = self.regs.get(Reg16::HL);
-                let r = self.regs.get(Reg8::A);
-                self.mem.set(r, addr);
-                self.regs.set(Reg16::HL, addr + 1);
-            },
+            0x22 => self.ldd_special(true, true),
             0x23 => self.regs.add(Reg16::HL, 1),
             0x24 => self.regs.add(Reg8::H, 1),
             0x25 => self.regs.sub(Reg8::H, 1),
             0x26 => self.regs.set(Reg8::H, _operand8),
-            0x2A => {
-                let addr = self.regs.get(Reg16::HL);
-                let r = self.mem.get(addr);
-                self.regs.set(Reg8::A, r);
-                self.regs.set(Reg16::HL, addr + 1);
-            },
+            0x2A => self.ldd_special(false, true),
             0x2B => self.regs.sub(Reg16::HL, 1),
             0x2C => self.regs.add(Reg8::L, 1),
             0x2D => self.regs.sub(Reg8::L, 1),
             0x2E => self.regs.set(Reg8::L, _operand8),
             0x31 => self.regs.set(Reg16::SP, _operand16),
-            0x32 => {
-                let addr = self.regs.get(Reg16::HL);
-                let r = self.regs.get(Reg8::A);
-                self.mem.set(r, addr);
-                self.regs.set(Reg16::HL, addr - 1);
-            },
+            0x32 => self.ldd_special(true, false),
             0x33 => self.regs.add(Reg16::HL, 1),
             0x34 => {
                 let addr = self.regs.get(Reg16::HL);
@@ -235,12 +235,7 @@ impl CPU {
                 self.mem.set(val - 1, addr);
             },
             0x36 => self.mem.set(_operand8, self.regs.get(Reg16::HL)),
-            0x3A => {
-                let addr = self.regs.get(Reg16::HL);
-                let r = self.mem.get(addr);
-                self.regs.set(Reg8::A, r);
-                self.regs.set(Reg16::HL, addr - 1);
-            },
+            0x3A => self.ldd_special(false, false),
             0x3B => self.regs.sub(Reg16::SP, 1),
             0x3C => self.regs.add(Reg8::A, 1),
             0x3D => self.regs.sub(Reg8::A, 1),
