@@ -24,8 +24,7 @@ pub struct CPU {
     regs: RegisterCache,
     mem: Memory,
     ir_enabled: bool,
-    quit: bool,
-    jumped: bool
+    quit: bool
 }
 
 impl CPU {
@@ -34,8 +33,7 @@ impl CPU {
             regs: RegisterCache::new(),
             mem: mem,
             ir_enabled: true,
-            quit: false,
-            jumped: false,
+            quit: false
         }
     }
 
@@ -48,35 +46,34 @@ impl CPU {
         util::join_u8((self.mem.get(addr), self.mem.get(addr+1)))
     }
 
-    // Push addr to stack
-    fn push(&mut self, addr: u16) {
+    // Push addr from given register onto stack
+    fn push(&mut self, src: Reg16) {
         self.regs.sub(Reg16::SP, 2);
-        let split_addr = util::split_u16(addr);
         let sp_val = self.regs.get(Reg16::SP);
+        let split_addr = util::split_u16(self.regs.get(src));
         self.mem.set(split_addr.0, sp_val);
         self.mem.set(split_addr.1, sp_val+1);
     }
 
-    // Pop topmost u16 value from stack
-    fn pop(&mut self) -> u16 {
+    // Pop topmost u16 value from stack, store to given register
+    fn pop(&mut self, dst: Reg16) {
         let stack_val = self.parse_u16(self.regs.get(Reg16::SP));
         self.regs.add(Reg16::SP, 2);
-        stack_val
+        self.regs.set(dst, stack_val);
     }
 
     // Push next_addr to stack, and jump to the jump_addr
     fn call(&mut self, jump_addr: u16) {
-        let next_addr = self.regs.get(Reg16::PC);
-        self.push(next_addr);
+        self.push(Reg16::PC);
         self.regs.set(Reg16::PC, jump_addr);
-        self.jumped = true;
     }
 
     // Pop the topmost address from the stack, and jump to it.
-    fn ret(&mut self) {
-        let next_addr = self.pop();
-        self.regs.set(Reg16::PC, next_addr);
-        self.jumped = true;
+    fn ret(&mut self, enable_ir: bool) {
+        self.pop(Reg16::PC);
+        if enable_ir {
+            self.ir_enabled = true;
+        }
     }
 
     // Copy from given register into the memory address pointed to by given Reg16
@@ -106,6 +103,24 @@ impl CPU {
         }
     }
 
+    fn ld_fast_page(&mut self, is_get: bool) {
+        let addr = 0xFF00 + self.regs.get(Reg8::C) as u16;
+        if is_get {
+            self.regs.set(Reg8::A, self.mem.get(addr));
+        } else {
+            self.mem.set(self.regs.get(Reg8::A), addr);
+        }
+    }
+
+    // Increment/decrement for (HL) value. TODO: should this be done another way? Maybe implement
+    // it as a Reg8::HL_PTR, or something special in ALU?
+    fn hl_ptr_inc_dec(&mut self, is_add: bool) {
+        let addr = self.regs.get(Reg16::HL);
+        let val = self.mem.get(addr);
+        let val = if is_add { val + 1 } else { val - 1};
+        self.mem.set(val, addr);
+    }
+
     // Jump relative to current PC, where offset is twos-complement 8-bit signed int.
     fn jump_relative(&mut self, offset: u8) {
         let addr = self.regs.get(Reg16::PC) as i32;
@@ -117,7 +132,6 @@ impl CPU {
         }
 
         self.regs.set(Reg16::PC, addr as u16);
-        self.jumped = true;
     }
 
     // Perform given ALU instruction with the given argument
@@ -158,7 +172,6 @@ impl CPU {
         let opcode = self.mem.get(old_pc);
         let _operand8  = self.mem.get(old_pc+1);
         let _operand16 = self.parse_u16(old_pc+1);
-        self.jumped = false;
 
         // Adjust opcode if it's a 0xCB prefixed instruction
         let opcode = if opcode == 0xCB {
@@ -185,6 +198,7 @@ impl CPU {
         self.print_instruction_info(&inst, old_pc);
 
         match opcode {
+            // [0x00, 0x3F] - Load, INC/DEC, some jumps, and other various instructions.
             0x00 => (),
             0x01 => self.regs.set(Reg16::BC, _operand16),
             0x02 => self.set_reg_ptr(Reg16::BC, Reg8::A),
@@ -224,16 +238,8 @@ impl CPU {
             0x31 => self.regs.set(Reg16::SP, _operand16),
             0x32 => self.ldd_special(true, false),
             0x33 => self.regs.add(Reg16::HL, 1),
-            0x34 => {
-                let addr = self.regs.get(Reg16::HL);
-                let val = self.mem.get(addr);
-                self.mem.set(val + 1, addr);
-            },
-            0x35 => {
-                let addr = self.regs.get(Reg16::HL);
-                let val = self.mem.get(addr);
-                self.mem.set(val - 1, addr);
-            },
+            0x34 => self.hl_ptr_inc_dec(true),
+            0x35 => self.hl_ptr_inc_dec(false),
             0x36 => self.mem.set(_operand8, self.regs.get(Reg16::HL)),
             0x3A => self.ldd_special(false, false),
             0x3B => self.regs.sub(Reg16::SP, 1),
@@ -306,66 +312,37 @@ impl CPU {
             0x7d => self.regs.copy(Reg8::A, Reg8::L),
             0x7e => self.get_reg_ptr(Reg8::A, Reg16::HL),
             0x7f => self.regs.copy(Reg8::A, Reg8::A),
-            0xC1 => {
-                let val = self.pop();
-                self.regs.set(Reg16::BC, val);
-            },
+
+            // [0x80, 0xBF] - Arithmetic operations
+
+            // [0xC0, 0xFF] - Flow control, push/pop/call/ret, and other various instructions.
+            0xC1 => self.pop(Reg16::BC),
             0xC3 => self.regs.set(Reg16::PC, _operand16),
-            0xC5 => {
-                let reg = self.regs.get(Reg16::BC);
-                self.push(reg);
-            },
+            0xC5 => self.push(Reg16::BC),
             0xC7 => self.call(0x00),
-            0xC9 => self.ret(),
+            0xC9 => self.ret(false),
             0xCB => self.quit = true, // This shouldn't ever happen
             0xCD => self.call(_operand16),
             0xCF => self.call(0x08),
-            0xD1 => {
-                let val = self.pop();
-                self.regs.set(Reg16::DE, val);
-            },
-            0xD5 => {
-                let reg = self.regs.get(Reg16::DE);
-                self.push(reg);
-            },
+            0xD1 => self.pop(Reg16::DE),
+            0xD5 => self.push(Reg16::DE),
             0xD7 => self.call(0x10),
-            0xD9 => {
-                self.ret();
-                self.ir_enabled = true;
-            },
+            0xD9 => self.ret(true),
             0xDF => self.call(0x18),
             0xE0 => self.mem.set(self.regs.get(Reg8::A), 0xFF00 + (_operand8 as u16)),
-            0xE1 => {
-                let val = self.pop();
-                self.regs.set(Reg16::HL, val);
-            },
-            0xE2 => {
-                let addr = 0xFF00 + self.regs.get(Reg8::C) as u16;
-                self.mem.set(self.regs.get(Reg8::A), addr);
-            },
+            0xE1 => self.pop(Reg16::HL),
+            0xE2 => self.ld_fast_page(true),
             0xE7 => self.call(0x20),
             0xEA => self.mem.set(self.regs.get(Reg8::A), _operand16),
-            0xE5 => {
-                let reg = self.regs.get(Reg16::HL);
-                self.push(reg);
-            },
+            0xE5 => self.push(Reg16::HL),
             0xEF => self.call(0x28),
             0xF0 => self.regs.set(Reg8::A, self.mem.get(0xFF00 + (_operand8 as u16))),
-            0xF1 => {
-                let val = self.pop();
-                self.regs.set(Reg16::AF, val);
-            },
-            0xF2 => {
-                let addr = 0xFF00 + self.regs.get(Reg8::C) as u16;
-                self.mem.set(self.regs.get(Reg8::A), addr);
-            },
+            0xF1 => self.pop(Reg16::AF),
+            0xF2 => self.ld_fast_page(false),
             0xF3 => self.ir_enabled = false,
             0xFA => self.regs.set(Reg8::A, self.mem.get(_operand16)),
             0xFB => self.ir_enabled = true,
-            0xF5 => {
-                let reg = self.regs.get(Reg16::AF);
-                self.push(reg);
-            },
+            0xF5 => self.push(Reg16::AF),
             0xF7 => self.call(0x30),
             0xFF => self.call(0x38),
             _ => {
@@ -373,7 +350,6 @@ impl CPU {
                 self.quit = true;
             }
         }
-
 
         !self.quit
     }
