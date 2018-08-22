@@ -3,6 +3,7 @@
 use memory::Memory;
 use lookup::Instruction;
 use registers::RegisterCache;
+use registers::Reg;
 use registers::Reg8;
 use registers::Reg16;
 use registers::RegOps;
@@ -135,21 +136,25 @@ impl CPU {
     }
 
     // Perform given ALU instruction with the given argument
-    fn alu(&mut self, op: AluOp, val: u8) {
-        let a = self.regs.get(Reg8::A);
-        let cy = 0; // TODO: Retrieve this from register cache
+    fn alu(&mut self, op: AluOp, dst: Reg8, operand_a: Reg8, operand_b: Reg8) {
+        let op_a = self.regs.get(operand_a);
+        let op_b = self.regs.get(operand_b);
+
+        // TODO: Is carry flag set in RegisterCache?
+        let cy = 0;
+
         let result = match op {
-            AluOp::Add      => a + val,
-            AluOp::AddCarry => a + val + cy,
-            AluOp::Sub      => a - val,
-            AluOp::SubCarry => a - val - cy,
-            AluOp::And      => a & val,
-            AluOp::Xor      => a ^ val,
-            AluOp::Or       => a | val,
-            AluOp::Comp     => !val
+            AluOp::Add      => op_a + op_b,
+            AluOp::AddCarry => op_a + op_b + cy,
+            AluOp::Sub      => op_a - op_b,
+            AluOp::SubCarry => op_a - op_b - cy,
+            AluOp::And      => op_a & op_b,
+            AluOp::Xor      => op_a ^ op_b,
+            AluOp::Or       => op_a | op_b,
+            AluOp::Comp     => !op_b
         };
 
-        self.regs.set(Reg8::A, result);
+        self.regs.set(dst, result);
 
         // TODO: Add flag mods here
     }
