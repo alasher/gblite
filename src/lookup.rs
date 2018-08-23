@@ -4753,7 +4753,6 @@ pub fn get_flags(opcode: u8, prefix_cb: bool) -> FlagStatus {
         0xe6 => FlagStatus{ z: FlagMod::Eval, n: FlagMod::Set(false), hc: FlagMod::Set(true), cy: FlagMod::Set(false) },
         0xe8 => FlagStatus{ z: FlagMod::Set(false), n: FlagMod::Set(false), hc: FlagMod::Eval, cy: FlagMod::Eval },
         0xee => FlagStatus{ z: FlagMod::Eval, n: FlagMod::Set(false), hc: FlagMod::Set(false), cy: FlagMod::Set(false) },
-        0xf1 => FlagStatus{ z: FlagMod::Eval, n: FlagMod::Eval, hc: FlagMod::Eval, cy: FlagMod::Eval },
         0xf6 => FlagStatus{ z: FlagMod::Eval, n: FlagMod::Set(false), hc: FlagMod::Set(false), cy: FlagMod::Set(false) },
         0xf8 => FlagStatus{ z: FlagMod::Set(false), n: FlagMod::Set(false), hc: FlagMod::Eval, cy: FlagMod::Eval },
         0xfe => FlagStatus{ z: FlagMod::Eval, n: FlagMod::Set(true), hc: FlagMod::Eval, cy: FlagMod::Eval },
