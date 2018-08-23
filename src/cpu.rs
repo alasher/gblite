@@ -10,6 +10,9 @@ use registers::RegOps;
 use util;
 use lookup;
 
+use std::ops::{Add, Sub, BitAnd, BitOr, BitXor, Not};
+use std::convert::From;
+
 enum AluOp {
     Add,
     AddCarry,
@@ -135,28 +138,29 @@ impl CPU {
         self.regs.set(Reg16::PC, addr as u16);
     }
 
-    // Perform given ALU instruction with the given argument
-    fn alu(&mut self, op: AluOp, dst: Reg8, operand_a: Reg8, operand_b: Reg8) {
-        let op_a = self.regs.get(operand_a);
-        let op_b = self.regs.get(operand_b);
-
-        // TODO: Is carry flag set in RegisterCache?
-        let cy = 0;
+    // Perform given ALU instruction against the given operands. It's the responsibility of other
+    // functions to handle moving the result to a certain register, or setting necessary flags.
+    fn alu<T>(&mut self, op: AluOp, operand_a: T, operand_b: T, carry: bool) -> T
+        where T: Add<Output=T> + Sub<Output=T> + BitAnd<Output=T>
+                 + BitOr<Output=T> + BitXor<Output=T> + Not<Output=T> + From<i8> {
+        let cy = T::from(if carry { 1 } else { 0 });
 
         let result = match op {
-            AluOp::Add      => op_a + op_b,
-            AluOp::AddCarry => op_a + op_b + cy,
-            AluOp::Sub      => op_a - op_b,
-            AluOp::SubCarry => op_a - op_b - cy,
-            AluOp::And      => op_a & op_b,
-            AluOp::Xor      => op_a ^ op_b,
-            AluOp::Or       => op_a | op_b,
-            AluOp::Comp     => !op_b
+            AluOp::Add      => operand_a + operand_b,
+            AluOp::AddCarry => operand_a + operand_b + cy,
+            AluOp::Sub      => operand_a - operand_b,
+            AluOp::SubCarry => operand_a - operand_b - cy,
+            AluOp::And      => operand_a & operand_b,
+            AluOp::Xor      => operand_a ^ operand_b,
+            AluOp::Or       => operand_a | operand_b,
+            AluOp::Comp     => !operand_b
         };
 
-        self.regs.set(dst, result);
+        result
+    }
 
-        // TODO: Add flag mods here
+    fn alu_instruction<R: Reg>(&mut self, inst: &Instruction, dst: R, src: R) {
+        println!("Testing!");
     }
 
     // For HALT, just exit the program for now. TODO: Add accurate HALT emulation here.

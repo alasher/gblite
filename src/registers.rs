@@ -4,6 +4,7 @@ use std::marker::Copy;
 #[derive(Copy, Clone)]
 pub enum Reg8 {
     A,
+    F,
     B,
     C,
     D,
@@ -30,8 +31,12 @@ pub enum Flag {
     CY
 }
 
+pub trait Reg {}
+impl Reg for Reg8  {}
+impl Reg for Reg16 {}
+
 pub trait RegOps<R, T> where
-    R: Copy,
+    R: Copy + Reg,
     T: Add<Output = T> + Sub<Output = T> {
     fn get(&self, src: R) -> T;
     fn set(&mut self, dst: R, src: T);
@@ -91,12 +96,40 @@ impl RegisterCache {
             pc: 0x0
         }
     }
+
+    fn flag_mask(f: Flag) -> u8 {
+        1 << (match f {
+            Flag::Z  => 7,
+            Flag::N  => 6,
+            Flag::H  => 5,
+            Flag::CY => 4
+        })
+    }
+
+    pub fn get_flag(&self, f: Flag) -> bool {
+        let mask = RegisterCache::flag_mask(f);
+        (self.get(Reg8::F) & mask) != 0
+    }
+
+    pub fn set_flag(&mut self, f: Flag, val: bool) {
+        let flags = self.get(Reg8::F);
+        let mask = RegisterCache::flag_mask(f);
+
+        let flags = if val { 
+            flags | mask
+        } else {
+            flags & !mask
+        };
+
+        self.set(Reg8::F, flags);
+    }
 }
 
 impl RegOps<Reg8, u8> for RegisterCache {
     fn get(&self, src: Reg8) -> u8 {
         match src {
             Reg8::A => self.af.get_first(),
+            Reg8::F => self.af.get_second(),
             Reg8::B => self.bc.get_first(),
             Reg8::C => self.bc.get_second(),
             Reg8::D => self.de.get_first(),
@@ -109,6 +142,7 @@ impl RegOps<Reg8, u8> for RegisterCache {
     fn set(&mut self, dst: Reg8, src: u8) {
         match dst {
             Reg8::A => self.af.set_first(src),
+            Reg8::F => self.af.set_second(src),
             Reg8::B => self.bc.set_first(src),
             Reg8::C => self.bc.set_second(src),
             Reg8::D => self.de.set_first(src),

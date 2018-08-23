@@ -1,5 +1,5 @@
 [package]
-name = "gb_reader"
+name = "gblite"
 version = "0.1.0"
 authors = ["Austin Lasher <austin@lasher.email>"]
 
