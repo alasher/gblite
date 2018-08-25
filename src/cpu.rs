@@ -2,16 +2,12 @@
 
 use memory::Memory;
 use lookup::Instruction;
-use registers::RegisterCache;
-use registers::Reg;
-use registers::Reg8;
-use registers::Reg16;
-use registers::RegOps;
+use registers::*;
 use util;
 use lookup;
 
 use std::ops::{Add, Sub, BitAnd, BitOr, BitXor, Not};
-use std::convert::From;
+use std::cmp::PartialEq;
 
 enum AluOp {
     Add,
@@ -25,10 +21,13 @@ enum AluOp {
 }
 
 pub struct CPU {
-    regs: RegisterCache,
-    mem: Memory,
-    ir_enabled: bool,
-    quit: bool
+    pub regs: RegisterCache,
+    pub mem: Memory,
+    pub ir_enabled: bool,
+    quit: bool,
+    was_zero: bool,
+    half_carry: bool,
+    full_carry: bool
 }
 
 impl CPU {
@@ -37,7 +36,10 @@ impl CPU {
             regs: RegisterCache::new(),
             mem: mem,
             ir_enabled: true,
-            quit: false
+            quit: false,
+            was_zero: false,
+            half_carry: false,
+            full_carry: false
         }
     }
 
@@ -141,9 +143,9 @@ impl CPU {
     // Perform given ALU instruction against the given operands. It's the responsibility of other
     // functions to handle moving the result to a certain register, or setting necessary flags.
     fn alu<T>(&mut self, op: AluOp, operand_a: T, operand_b: T, carry: bool) -> T
-        where T: Add<Output=T> + Sub<Output=T> + BitAnd<Output=T>
-                 + BitOr<Output=T> + BitXor<Output=T> + Not<Output=T> + From<i8> {
-        let cy = T::from(if carry { 1 } else { 0 });
+        where T: Add<Output=T> + Sub<Output=T> + BitAnd<Output=T> + BitOr<Output=T>
+                 + BitXor<Output=T> + Not<Output=T> + PartialEq + util::FromI8 {
+        let cy = T::from_i8(if carry { (1i8) } else { 0i8 });
 
         let result = match op {
             AluOp::Add      => operand_a + operand_b,
@@ -156,11 +158,43 @@ impl CPU {
             AluOp::Comp     => !operand_b
         };
 
+        // Store the result of the last ALU operation in temporary CPU boolean.
+        // We don't commit these to the RegisterCache yet because it's possible for 
+        // an instruction to ignore this result.
+        // self.was_zero = (result == 0);
+        // self.half_carry =
+        // self.full_carry =
+
         result
     }
 
-    fn alu_instruction<R: Reg>(&mut self, inst: &Instruction, dst: R, src: R) {
-        println!("Testing!");
+    // Perform ALU op on accumulator, and handle flags.
+    fn arith_op(&mut self, op: AluOp, flags: FlagStatus, src: Reg8) {
+        let operand_a = self.regs.get(Reg8::A);
+        let operand_b = self.regs.get(src);
+        let carry_bit = self.regs.get_flag(Flag::CY);
+        let result = self.alu(op, operand_a, operand_b, carry_bit);
+        self.regs.set(Reg8::A, result);
+
+        self.evaluate_flag(Flag::Z,  flags.z);
+        self.evaluate_flag(Flag::N,  flags.n);
+        self.evaluate_flag(Flag::H,  flags.h);
+        self.evaluate_flag(Flag::CY, flags.cy);
+    }
+
+    fn evaluate_flag(&mut self, flag: Flag, modifier: FlagMod) {
+        match modifier {
+            FlagMod::Ignore => (),
+            FlagMod::Set(val) => self.regs.set_flag(flag, val),
+            FlagMod::Eval => {
+                match flag {
+                    Flag::Z =>  self.regs.set_flag(flag, self.was_zero),
+                    Flag::H =>  self.regs.set_flag(flag, self.half_carry),
+                    Flag::CY => self.regs.set_flag(flag, self.full_carry),
+                    Flag::N => panic!("Invalid FlagMod value for N flag! Should have been FlagMod::Set.")
+                }
+            }
+        }
     }
 
     // For HALT, just exit the program for now. TODO: Add accurate HALT emulation here.

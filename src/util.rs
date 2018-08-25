@@ -18,3 +18,21 @@ pub fn set_bit(word: u8, bit: u8, set: bool) -> u8 {
 pub fn is_bit_set(word: u8, bit: u8) -> bool {
     (word & (1 << bit)) != 0
 }
+
+// Trait to convert from i8 into another generic primitive, see CPU::alu.
+// After scouring Stack Overflow, I couldn't find a better way to solve this problem.
+pub trait FromI8 {
+    fn from_i8(val: i8) -> Self;
+}
+
+impl FromI8 for u8 {
+    fn from_i8(val: i8) -> u8 {
+        val as u8
+    }
+}
+
+impl FromI8 for u16 {
+    fn from_i8(val: i8) -> u16 {
+        val as u16
+    }
+}

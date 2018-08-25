@@ -23,6 +23,10 @@ pub enum Reg16 {
     PC
 }
 
+pub trait Reg {}
+impl Reg for Reg8  {}
+impl Reg for Reg16 {}
+
 #[derive(Copy, Clone)]
 pub enum Flag {
     Z,
@@ -31,9 +35,18 @@ pub enum Flag {
     CY
 }
 
-pub trait Reg {}
-impl Reg for Reg8  {}
-impl Reg for Reg16 {}
+pub enum FlagMod {
+    Ignore,
+    Eval,
+    Set(bool)
+}
+
+pub struct FlagStatus {
+    pub z:  FlagMod, // Flag modifiers: for each flag, define if this instruction ignores this
+    pub n:  FlagMod, // flag, sets this flag to a fixed value, or sets it to a value that is
+    pub h:  FlagMod, // evaluated within this instruction.
+    pub cy: FlagMod
+}
 
 pub trait RegOps<R, T> where
     R: Copy + Reg,
