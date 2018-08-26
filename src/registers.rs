@@ -1,5 +1,11 @@
-use std::ops::{Add, Sub};
 use std::marker::Copy;
+use std::clone::Clone;
+
+use std::ops::{BitAnd, BitOr, BitXor, Not};
+use std::cmp::PartialEq;
+use std::fmt::Display;
+use num::Num;
+use num::FromPrimitive;
 
 #[derive(Copy, Clone)]
 pub enum Reg8 {
@@ -23,9 +29,14 @@ pub enum Reg16 {
     PC
 }
 
-pub trait Reg {}
+pub trait Reg : Clone + Copy {}
 impl Reg for Reg8  {}
 impl Reg for Reg16 {}
+
+pub trait RegData<T> : Num + Clone + Copy + PartialEq + BitAnd<Output=T> + BitOr<Output=T>
+     + BitXor<Output=T> + Not<Output=T> + FromPrimitive + Display {}
+impl<T> RegData<T> for T where T: Num + Clone + Copy + PartialEq + BitAnd<Output=T> + BitOr<Output=T>
+     + BitXor<Output=T> + Not<Output=T> + FromPrimitive + Display {}
 
 #[derive(Copy, Clone)]
 pub enum Flag {
@@ -48,9 +59,7 @@ pub struct FlagStatus {
     pub cy: FlagMod
 }
 
-pub trait RegOps<R, T> where
-    R: Copy + Reg,
-    T: Add<Output = T> + Sub<Output = T> {
+pub trait RegOps<R: Reg, T: RegData<T>> {
     fn get(&self, src: R) -> T;
     fn set(&mut self, dst: R, src: T);
     fn copy(&mut self, dst: R, src: R) {

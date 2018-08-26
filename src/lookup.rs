@@ -2306,7 +2306,7 @@ pub fn get_instruction(opcode: u16) -> Instruction {
         0xfe => Instruction {
             opcode: 0xfe,
             prefix_cb: false,
-            name: String::from("JP d8"),
+            name: String::from("CP d8"),
             bytes: 2,
             clocks: 8,
             clocks_extra: 0,
@@ -4641,9 +4641,8 @@ pub fn get_instruction(opcode: u16) -> Instruction {
 }
 
 
-pub fn get_flags(opcode: u8, prefix_cb: bool) -> FlagStatus {
-    let op = if prefix_cb { 0xcb + opcode as u16 } else { opcode as u16 };
-    match op {
+pub fn get_flags(full_opcode: u16) -> FlagStatus {
+    match full_opcode {
         0x04 => FlagStatus{ z: FlagMod::Eval, n: FlagMod::Set(false), h: FlagMod::Eval, cy: FlagMod::Ignore },
         0x05 => FlagStatus{ z: FlagMod::Eval, n: FlagMod::Set(true), h: FlagMod::Eval, cy: FlagMod::Ignore },
         0x07 => FlagStatus{ z: FlagMod::Set(false), n: FlagMod::Set(false), h: FlagMod::Set(false), cy: FlagMod::Eval },

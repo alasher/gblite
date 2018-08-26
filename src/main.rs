@@ -1,3 +1,5 @@
+extern crate num;
+
 mod registers;
 mod cpu;
 mod memory;

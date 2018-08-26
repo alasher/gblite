@@ -6,8 +6,6 @@ use registers::*;
 use util;
 use lookup;
 
-use std::ops::{Add, Sub, BitAnd, BitOr, BitXor, Not};
-use std::cmp::PartialEq;
 
 enum AluOp {
     Add,
@@ -127,6 +125,18 @@ impl CPU {
         self.mem.set(val, addr);
     }
 
+    // Jump only if flag is set (or unset)
+    fn jump_relative_flag(&mut self, flag: Flag, if_unset: bool, offset: u8) {
+       let flag_val = match flag {
+           Flag::Z | Flag::CY => self.regs.get_flag(flag),
+           _ => panic!("Can only call jump_relative_flag on Z and CY flags.")
+       };
+
+       if flag_val ^ if_unset {
+           self.jump_relative(offset);
+       }
+    }
+
     // Jump relative to current PC, where offset is twos-complement 8-bit signed int.
     fn jump_relative(&mut self, offset: u8) {
         let addr = self.regs.get(Reg16::PC) as i32;
@@ -143,27 +153,32 @@ impl CPU {
     // Perform given ALU instruction against the given operands. It's the responsibility of other
     // functions to handle moving the result to a certain register, or setting necessary flags.
     fn alu<T>(&mut self, op: AluOp, operand_a: T, operand_b: T, carry: bool) -> T
-        where T: Add<Output=T> + Sub<Output=T> + BitAnd<Output=T> + BitOr<Output=T>
-                 + BitXor<Output=T> + Not<Output=T> + PartialEq + util::FromI8 {
-        let cy = T::from_i8(if carry { (1i8) } else { 0i8 });
+        where T: RegData<T> {
+
+        let op_a = operand_a.clone();
+        let op_b = operand_b.clone();
 
         let result = match op {
-            AluOp::Add      => operand_a + operand_b,
-            AluOp::AddCarry => operand_a + operand_b + cy,
-            AluOp::Sub      => operand_a - operand_b,
-            AluOp::SubCarry => operand_a - operand_b - cy,
-            AluOp::And      => operand_a & operand_b,
-            AluOp::Xor      => operand_a ^ operand_b,
-            AluOp::Or       => operand_a | operand_b,
-            AluOp::Comp     => !operand_b
+            AluOp::Add      => op_a + op_b,
+            AluOp::AddCarry => op_a + op_b + if carry { T::one() } else { T::zero() },
+            AluOp::Sub      => op_a - op_b,
+            AluOp::SubCarry => op_a - op_b - if carry { T::one() } else { T::zero() },
+            AluOp::And      => op_a & op_b,
+            AluOp::Xor      => op_a ^ op_b,
+            AluOp::Or       => op_a | op_b,
+            AluOp::Comp     => !op_b
         };
 
         // Store the result of the last ALU operation in temporary CPU boolean.
         // We don't commit these to the RegisterCache yet because it's possible for 
         // an instruction to ignore this result.
-        // self.was_zero = (result == 0);
+        self.was_zero = result == T::from_i8(0).expect("Conversion error.");
         // self.half_carry =
         // self.full_carry =
+
+        if cfg!(debug_assertions) {
+            println!("Result of operand on input {}, {} => {}", operand_a, operand_b, result);
+        }
 
         result
     }
@@ -175,7 +190,19 @@ impl CPU {
         let carry_bit = self.regs.get_flag(Flag::CY);
         let result = self.alu(op, operand_a, operand_b, carry_bit);
         self.regs.set(Reg8::A, result);
+        self.evaluate_flags(flags);
+    }
 
+    // Take an immediate u8 instead of a register. TODO: Combine this with arith_op?
+    fn arith_imm(&mut self, op: AluOp, flags: FlagStatus, val: u8) {
+        let operand_a = self.regs.get(Reg8::A);
+        let carry_bit = self.regs.get_flag(Flag::CY);
+        let result = self.alu(op, operand_a, val, carry_bit);
+        self.regs.set(Reg8::A, result);
+        self.evaluate_flags(flags);
+    }
+
+    fn evaluate_flags(&mut self, flags: FlagStatus) {
         self.evaluate_flag(Flag::Z,  flags.z);
         self.evaluate_flag(Flag::N,  flags.n);
         self.evaluate_flag(Flag::H,  flags.h);
@@ -191,7 +218,7 @@ impl CPU {
                     Flag::Z =>  self.regs.set_flag(flag, self.was_zero),
                     Flag::H =>  self.regs.set_flag(flag, self.half_carry),
                     Flag::CY => self.regs.set_flag(flag, self.full_carry),
-                    Flag::N => panic!("Invalid FlagMod value for N flag! Should have been FlagMod::Set.")
+                    Flag::N => panic!("Invalid FlagMod value for N flag! Cannot evaluate N with FlagMod::Eval.")
                 }
             }
         }
@@ -267,22 +294,26 @@ impl CPU {
             0x1C => self.regs.add(Reg8::D, 1),
             0x1D => self.regs.sub(Reg8::D, 1),
             0x1E => self.regs.set(Reg8::E, _operand8),
+            0x20 => self.jump_relative_flag(Flag::Z, true, _operand8),
             0x21 => self.regs.set(Reg16::HL, _operand16),
             0x22 => self.ldd_special(true, true),
             0x23 => self.regs.add(Reg16::HL, 1),
             0x24 => self.regs.add(Reg8::H, 1),
             0x25 => self.regs.sub(Reg8::H, 1),
             0x26 => self.regs.set(Reg8::H, _operand8),
+            0x28 => self.jump_relative_flag(Flag::Z, false, _operand8),
             0x2A => self.ldd_special(false, true),
             0x2B => self.regs.sub(Reg16::HL, 1),
             0x2C => self.regs.add(Reg8::L, 1),
             0x2D => self.regs.sub(Reg8::L, 1),
             0x2E => self.regs.set(Reg8::L, _operand8),
+            0x30 => self.jump_relative_flag(Flag::CY, true, _operand8),
             0x31 => self.regs.set(Reg16::SP, _operand16),
             0x32 => self.ldd_special(true, false),
             0x33 => self.regs.add(Reg16::HL, 1),
             0x34 => self.hl_ptr_inc_dec(true),
             0x35 => self.hl_ptr_inc_dec(false),
+            0x38 => self.jump_relative_flag(Flag::CY, false, _operand8),
             0x36 => self.mem.set(_operand8, self.regs.get(Reg16::HL)),
             0x3A => self.ldd_special(false, false),
             0x3B => self.regs.sub(Reg16::SP, 1),
@@ -357,6 +388,14 @@ impl CPU {
             0x7f => self.regs.copy(Reg8::A, Reg8::A),
 
             // [0x80, 0xBF] - Arithmetic operations
+            0xb0 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::B),
+            0xb1 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::C),
+            0xb2 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::D),
+            0xb3 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::E),
+            0xb4 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::H),
+            0xb5 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::L),
+            // 0xb6 => AluOp::Or on (HL), TODO: implement Reg8::HL_PTR?
+            0xb7 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::A),
 
             // [0xC0, 0xFF] - Flow control, push/pop/call/ret, and other various instructions.
             0xC1 => self.pop(Reg16::BC),
@@ -387,9 +426,10 @@ impl CPU {
             0xFB => self.ir_enabled = true,
             0xF5 => self.push(Reg16::AF),
             0xF7 => self.call(0x30),
+            0xFE => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::A),
             0xFF => self.call(0x38),
             _ => {
-                println!("Fatal error: undefined instruction!");
+                println!("Fatal error: undefined instruction! Opcode: 0x{:02x}", opcode);
                 self.quit = true;
             }
         }
