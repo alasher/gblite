@@ -7,6 +7,7 @@ use util;
 use lookup;
 
 
+#[derive(Copy, Clone, PartialEq)]
 enum AluOp {
     Add,
     AddCarry,
@@ -166,34 +167,38 @@ impl CPU {
             AluOp::And      => op_a & op_b,
             AluOp::Xor      => op_a ^ op_b,
             AluOp::Or       => op_a | op_b,
-            AluOp::Comp     => !op_b
+            AluOp::Comp     => op_a
         };
 
         // Store the result of the last ALU operation in temporary CPU boolean.
         // We don't commit these to the RegisterCache yet because it's possible for 
-        // an instruction to ignore this result.
-        self.was_zero = result == T::from_i8(0).expect("Conversion error.");
-        // self.half_carry =
-        // self.full_carry =
+        // an instruction to ignore this result. Compare instructions re-use these flags.
+        if op != AluOp::Comp {
+            self.was_zero = result == T::from_i8(0).expect("Conversion error.");
+            // self.half_carry =
+            // self.full_carry =
+        } else {
+            let mask = T::from_u8(0xf).expect("Conversion error.");
+            self.was_zero   = op_a == op_b;
+            self.half_carry = op_a < op_b;
+            self.full_carry = (op_a & mask) < (op_b & mask);
+        }
 
         if cfg!(debug_assertions) {
-            println!("Result of operand on input {}, {} => {}", operand_a, operand_b, result);
+            println!("Result of ALU instruction with input {}, {} => {}. Z: {}, H: {}, CY: {}",
+                     operand_a, operand_b, result, self.was_zero, self.half_carry, self.full_carry);
         }
 
         result
     }
 
-    // Perform ALU op on accumulator, and handle flags.
+    // Perform ALU op on accumulator and input register, and handle flags.
     fn arith_op(&mut self, op: AluOp, flags: FlagStatus, src: Reg8) {
-        let operand_a = self.regs.get(Reg8::A);
         let operand_b = self.regs.get(src);
-        let carry_bit = self.regs.get_flag(Flag::CY);
-        let result = self.alu(op, operand_a, operand_b, carry_bit);
-        self.regs.set(Reg8::A, result);
-        self.evaluate_flags(flags);
+        self.arith_imm(op, flags, operand_b);
     }
 
-    // Take an immediate u8 instead of a register. TODO: Combine this with arith_op?
+    // Take an immediate u8 instead of a register.
     fn arith_imm(&mut self, op: AluOp, flags: FlagStatus, val: u8) {
         let operand_a = self.regs.get(Reg8::A);
         let carry_bit = self.regs.get_flag(Flag::CY);
@@ -426,7 +431,7 @@ impl CPU {
             0xFB => self.ir_enabled = true,
             0xF5 => self.push(Reg16::AF),
             0xF7 => self.call(0x30),
-            0xFE => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::A),
+            0xFE => self.arith_imm(AluOp::Comp, lookup::get_flags(opcode), _operand8),
             0xFF => self.call(0x38),
             _ => {
                 println!("Fatal error: undefined instruction! Opcode: 0x{:02x}", opcode);

@@ -3,9 +3,10 @@ use std::clone::Clone;
 
 use std::ops::{BitAnd, BitOr, BitXor, Not};
 use std::cmp::PartialEq;
-use std::fmt::Display;
+use std::fmt::{Display, LowerHex};
 use num::Num;
 use num::FromPrimitive;
+use num::traits::{WrappingAdd, WrappingSub};
 
 #[derive(Copy, Clone)]
 pub enum Reg8 {
@@ -34,9 +35,9 @@ impl Reg for Reg8  {}
 impl Reg for Reg16 {}
 
 pub trait RegData<T> : Num + Clone + Copy + PartialEq + BitAnd<Output=T> + BitOr<Output=T>
-     + BitXor<Output=T> + Not<Output=T> + FromPrimitive + Display {}
+     + BitXor<Output=T> + Not<Output=T> + WrappingAdd + WrappingSub + PartialOrd + FromPrimitive + Display + LowerHex {}
 impl<T> RegData<T> for T where T: Num + Clone + Copy + PartialEq + BitAnd<Output=T> + BitOr<Output=T>
-     + BitXor<Output=T> + Not<Output=T> + FromPrimitive + Display {}
+     + BitXor<Output=T> + Not<Output=T> + WrappingAdd + WrappingSub + PartialOrd + FromPrimitive + Display + LowerHex {}
 
 #[derive(Copy, Clone)]
 pub enum Flag {
@@ -67,12 +68,12 @@ pub trait RegOps<R: Reg, T: RegData<T>> {
        self.set(dst, tmp);
     }
     fn add(&mut self, dst: R, val: T) {
-        let tmp = self.get(dst) + val;
-        self.set(dst, tmp);
+        let new_val = self.get(dst).wrapping_add(&val);
+        self.set(dst, new_val);
     }
     fn sub(&mut self, dst: R, val: T) {
-        let tmp = self.get(dst) - val;
-        self.set(dst, tmp);
+        let new_val = self.get(dst).wrapping_sub(&val);
+        self.set(dst, new_val);
     }
 }
 
@@ -95,6 +96,10 @@ impl DoubleRegister {
     fn set_double(&mut self, val: u16) {
         self.a = (val >> 8)   as u8;
         self.b = (val & 0xFF) as u8;
+    }
+
+    pub fn print_contents(&self) {
+        println!("(0x{:02x}, 0x{:02x}, 0x{:04x})", self.get_first(), self.get_second(), self.get_double());
     }
 }
 
@@ -144,6 +149,18 @@ impl RegisterCache {
         };
 
         self.set(Reg8::F, flags);
+    }
+
+    pub fn print_registers(&self) {
+        print!("AF: ");
+        self.af.print_contents();
+        print!("BC: ");
+        self.bc.print_contents();
+        print!("DE: ");
+        self.de.print_contents();
+        print!("HL: ");
+        self.hl.print_contents();
+        println!("PC: 0x{:04x}, SP: 0x{:04x}", self.pc, self.sp);
     }
 }
 
