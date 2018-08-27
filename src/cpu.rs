@@ -109,7 +109,7 @@ impl CPU {
     }
 
     fn ld_fast_page(&mut self, is_get: bool) {
-        let addr = 0xFF00 + self.regs.get(Reg8::C) as u16;
+        let addr = 0xff00 + self.regs.get(Reg8::C) as u16;
         if is_get {
             self.regs.set(Reg8::A, self.mem.get(addr));
         } else {
@@ -142,7 +142,7 @@ impl CPU {
     fn jump_relative(&mut self, offset: u8) {
         let addr = self.regs.get(Reg16::PC) as i32;
         let addr = addr + (offset as i8) as i32;
-        if addr < 0 || addr > 0xFFFF {
+        if addr < 0 || addr > 0xffff {
             println!("Fatal error: jumped out-of-bounds!");
             self.quit = true;
             return;
@@ -248,9 +248,9 @@ impl CPU {
         let _operand8  = self.mem.get(old_pc+1);
         let _operand16 = self.parse_u16(old_pc+1);
 
-        // Adjust opcode if it's a 0xCB prefixed instruction
-        let opcode = if opcode == 0xCB {
-            let newop = 0xCB as u16 | _operand8 as u16;
+        // Adjust opcode if it's a 0xcb prefixed instruction
+        let opcode = if opcode == 0xcb {
+            let newop = 0xcb as u16 | _operand8 as u16;
             let _operand8  = self.mem.get(old_pc+2);
             let _operand16 = self.parse_u16(old_pc+2);
             newop
@@ -273,7 +273,7 @@ impl CPU {
         self.print_instruction_info(&inst, old_pc);
 
         match opcode {
-            // [0x00, 0x3F] - Load, INC/DEC, some jumps, and other various instructions.
+            // [0x00, 0x3f] - Load, INC/DEC, some jumps, and other various instructions.
             0x00 => (),
             0x01 => self.regs.set(Reg16::BC, _operand16),
             0x02 => self.set_reg_ptr(Reg16::BC, Reg8::A),
@@ -281,11 +281,11 @@ impl CPU {
             0x04 => self.regs.add(Reg8::B, 1),
             0x05 => self.regs.sub(Reg8::B, 1),
             0x06 => self.regs.set(Reg8::B, _operand8),
-            0x0A => self.get_reg_ptr(Reg8::A, Reg16::BC),
-            0x0B => self.regs.sub(Reg16::BC, 1),
-            0x0C => self.regs.add(Reg8::C, 1),
-            0x0D => self.regs.sub(Reg8::C, 1),
-            0x0E => self.regs.set(Reg8::C, _operand8),
+            0x0a => self.get_reg_ptr(Reg8::A, Reg16::BC),
+            0x0b => self.regs.sub(Reg16::BC, 1),
+            0x0c => self.regs.add(Reg8::C, 1),
+            0x0d => self.regs.sub(Reg8::C, 1),
+            0x0e => self.regs.set(Reg8::C, _operand8),
             0x10 => self.stop(),
             0x11 => self.regs.set(Reg16::DE, _operand16),
             0x12 => self.set_reg_ptr(Reg16::DE, Reg8::A),
@@ -294,11 +294,11 @@ impl CPU {
             0x15 => self.regs.sub(Reg8::D, 1),
             0x16 => self.regs.set(Reg8::D, _operand8),
             0x18 => self.jump_relative(_operand8),
-            0x1A => self.get_reg_ptr(Reg8::A, Reg16::DE),
-            0x1B => self.regs.sub(Reg16::BC, 1),
-            0x1C => self.regs.add(Reg8::D, 1),
-            0x1D => self.regs.sub(Reg8::D, 1),
-            0x1E => self.regs.set(Reg8::E, _operand8),
+            0x1a => self.get_reg_ptr(Reg8::A, Reg16::DE),
+            0x1b => self.regs.sub(Reg16::BC, 1),
+            0x1c => self.regs.add(Reg8::D, 1),
+            0x1d => self.regs.sub(Reg8::D, 1),
+            0x1e => self.regs.set(Reg8::E, _operand8),
             0x20 => self.jump_relative_flag(Flag::Z, true, _operand8),
             0x21 => self.regs.set(Reg16::HL, _operand16),
             0x22 => self.ldd_special(true, true),
@@ -307,26 +307,26 @@ impl CPU {
             0x25 => self.regs.sub(Reg8::H, 1),
             0x26 => self.regs.set(Reg8::H, _operand8),
             0x28 => self.jump_relative_flag(Flag::Z, false, _operand8),
-            0x2A => self.ldd_special(false, true),
-            0x2B => self.regs.sub(Reg16::HL, 1),
-            0x2C => self.regs.add(Reg8::L, 1),
-            0x2D => self.regs.sub(Reg8::L, 1),
-            0x2E => self.regs.set(Reg8::L, _operand8),
+            0x2a => self.ldd_special(false, true),
+            0x2b => self.regs.sub(Reg16::HL, 1),
+            0x2c => self.regs.add(Reg8::L, 1),
+            0x2d => self.regs.sub(Reg8::L, 1),
+            0x2e => self.regs.set(Reg8::L, _operand8),
             0x30 => self.jump_relative_flag(Flag::CY, true, _operand8),
             0x31 => self.regs.set(Reg16::SP, _operand16),
             0x32 => self.ldd_special(true, false),
             0x33 => self.regs.add(Reg16::HL, 1),
             0x34 => self.hl_ptr_inc_dec(true),
             0x35 => self.hl_ptr_inc_dec(false),
-            0x38 => self.jump_relative_flag(Flag::CY, false, _operand8),
             0x36 => self.mem.set(_operand8, self.regs.get(Reg16::HL)),
-            0x3A => self.ldd_special(false, false),
-            0x3B => self.regs.sub(Reg16::SP, 1),
-            0x3C => self.regs.add(Reg8::A, 1),
-            0x3D => self.regs.sub(Reg8::A, 1),
-            0x3E => self.regs.set(Reg8::A, _operand8),
+            0x38 => self.jump_relative_flag(Flag::CY, false, _operand8),
+            0x3a => self.ldd_special(false, false),
+            0x3b => self.regs.sub(Reg16::SP, 1),
+            0x3c => self.regs.add(Reg8::A, 1),
+            0x3d => self.regs.sub(Reg8::A, 1),
+            0x3e => self.regs.set(Reg8::A, _operand8),
 
-            // [0x40, 0x7F] - Mostly copy instructions between registers and (HL).
+            // [0x40, 0x7f] - Mostly copy instructions between registers and (HL).
             0x40 => self.regs.copy(Reg8::B, Reg8::B),
             0x41 => self.regs.copy(Reg8::B, Reg8::C),
             0x42 => self.regs.copy(Reg8::B, Reg8::D),
@@ -392,7 +392,7 @@ impl CPU {
             0x7e => self.get_reg_ptr(Reg8::A, Reg16::HL),
             0x7f => self.regs.copy(Reg8::A, Reg8::A),
 
-            // [0x80, 0xBF] - Arithmetic operations
+            // [0x80, 0xbf] - Arithmetic operations
             0xb0 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::B),
             0xb1 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::C),
             0xb2 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::D),
@@ -400,39 +400,54 @@ impl CPU {
             0xb4 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::H),
             0xb5 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::L),
             // 0xb6 => AluOp::Or on (HL), TODO: implement Reg8::HL_PTR?
-            0xb7 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::A),
+            0xb7 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::A),
+            0xb8 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::B),
+            0xb9 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::C),
+            0xba => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::D),
+            0xbb => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::E),
+            0xbc => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::H),
+            0xbd => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::L),
+            // 0xbe => Reg8::HL_PTR
+            0xbf => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::A),
 
-            // [0xC0, 0xFF] - Flow control, push/pop/call/ret, and other various instructions.
-            0xC1 => self.pop(Reg16::BC),
-            0xC3 => self.regs.set(Reg16::PC, _operand16),
-            0xC5 => self.push(Reg16::BC),
-            0xC7 => self.call(0x00),
-            0xC9 => self.ret(false),
-            0xCB => self.quit = true, // This shouldn't ever happen
-            0xCD => self.call(_operand16),
-            0xCF => self.call(0x08),
-            0xD1 => self.pop(Reg16::DE),
-            0xD5 => self.push(Reg16::DE),
-            0xD7 => self.call(0x10),
-            0xD9 => self.ret(true),
-            0xDF => self.call(0x18),
-            0xE0 => self.mem.set(self.regs.get(Reg8::A), 0xFF00 + (_operand8 as u16)),
-            0xE1 => self.pop(Reg16::HL),
-            0xE2 => self.ld_fast_page(true),
-            0xE7 => self.call(0x20),
-            0xEA => self.mem.set(self.regs.get(Reg8::A), _operand16),
-            0xE5 => self.push(Reg16::HL),
-            0xEF => self.call(0x28),
-            0xF0 => self.regs.set(Reg8::A, self.mem.get(0xFF00 + (_operand8 as u16))),
-            0xF1 => self.pop(Reg16::AF),
-            0xF2 => self.ld_fast_page(false),
-            0xF3 => self.ir_enabled = false,
-            0xFA => self.regs.set(Reg8::A, self.mem.get(_operand16)),
-            0xFB => self.ir_enabled = true,
-            0xF5 => self.push(Reg16::AF),
-            0xF7 => self.call(0x30),
-            0xFE => self.arith_imm(AluOp::Comp, lookup::get_flags(opcode), _operand8),
-            0xFF => self.call(0x38),
+            // [0xc0, 0xff] - Flow control, push/pop/call/ret, and other various instructions.
+            0xc1 => self.pop(Reg16::BC),
+            0xc3 => self.regs.set(Reg16::PC, _operand16),
+            0xc5 => self.push(Reg16::BC),
+            0xc6 => self.arith_imm(AluOp::Add, lookup::get_flags(opcode), _operand8),
+            0xc7 => self.call(0x00),
+            0xc9 => self.ret(false),
+            0xcb => self.quit = true, // This shouldn't ever happen
+            0xcd => self.call(_operand16),
+            0xce => self.arith_imm(AluOp::AddCarry, lookup::get_flags(opcode), _operand8),
+            0xcf => self.call(0x08),
+            0xd1 => self.pop(Reg16::DE),
+            0xd5 => self.push(Reg16::DE),
+            0xd6 => self.arith_imm(AluOp::Sub, lookup::get_flags(opcode), _operand8),
+            0xd7 => self.call(0x10),
+            0xd9 => self.ret(true),
+            0xde => self.arith_imm(AluOp::SubCarry, lookup::get_flags(opcode), _operand8),
+            0xdf => self.call(0x18),
+            0xe0 => self.mem.set(self.regs.get(Reg8::A), 0xff00 + (_operand8 as u16)),
+            0xe1 => self.pop(Reg16::HL),
+            0xe2 => self.ld_fast_page(true),
+            0xe5 => self.push(Reg16::HL),
+            0xe6 => self.arith_imm(AluOp::And, lookup::get_flags(opcode), _operand8),
+            0xe7 => self.call(0x20),
+            0xea => self.mem.set(self.regs.get(Reg8::A), _operand16),
+            0xee => self.arith_imm(AluOp::Xor, lookup::get_flags(opcode), _operand8),
+            0xef => self.call(0x28),
+            0xf0 => self.regs.set(Reg8::A, self.mem.get(0xff00 + (_operand8 as u16))),
+            0xf1 => self.pop(Reg16::AF),
+            0xf2 => self.ld_fast_page(false),
+            0xf3 => self.ir_enabled = false,
+            0xf5 => self.push(Reg16::AF),
+            0xf6 => self.arith_imm(AluOp::Or, lookup::get_flags(opcode), _operand8),
+            0xf7 => self.call(0x30),
+            0xfa => self.regs.set(Reg8::A, self.mem.get(_operand16)),
+            0xfb => self.ir_enabled = true,
+            0xfe => self.arith_imm(AluOp::Comp, lookup::get_flags(opcode), _operand8),
+            0xff => self.call(0x38),
             _ => {
                 println!("Fatal error: undefined instruction! Opcode: 0x{:02x}", opcode);
                 self.quit = true;
