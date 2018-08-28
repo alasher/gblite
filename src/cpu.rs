@@ -67,10 +67,33 @@ impl CPU {
         self.regs.set(dst, stack_val);
     }
 
+    fn call_flag(&mut self, flag: Flag, if_unset: bool, addr: u16) {
+        let flag_val = match flag {
+            Flag::Z | Flag::CY => self.regs.get_flag(flag),
+            _ => panic!("CALL for flag only exists for Z and CY flags!")
+        };
+
+        if flag_val ^ if_unset {
+            self.call(addr);
+        }
+    }
+
     // Push next_addr to stack, and jump to the jump_addr
     fn call(&mut self, jump_addr: u16) {
         self.push(Reg16::PC);
         self.regs.set(Reg16::PC, jump_addr);
+    }
+
+    // Call ret if flag matches
+    fn ret_flag(&mut self, flag: Flag, if_unset: bool) {
+        let flag_val = match flag {
+            Flag::Z | Flag::CY => self.regs.get_flag(flag),
+            _ => panic!("RET for flag only exists for Z and CY flags!")
+        };
+
+        if flag_val ^ if_unset {
+            self.ret(false);
+        }
     }
 
     // Pop the topmost address from the stack, and jump to it.
@@ -124,6 +147,18 @@ impl CPU {
         let val = self.mem.get(addr);
         let val = if is_add { val + 1 } else { val - 1};
         self.mem.set(val, addr);
+    }
+
+    // Jump to the given address if Z or CY match what we expect
+    fn jump_flag(&mut self, flag: Flag, if_unset: bool, addr: u16) {
+       let flag_val = match flag {
+           Flag::Z | Flag::CY => self.regs.get_flag(flag),
+           _ => panic!("Can only call jump_flag on Z and CY flags.")
+       };
+
+       if flag_val ^ if_unset {
+           self.regs.set(Reg16::PC, addr);
+       }
     }
 
     // Jump only if flag is set (or unset)
@@ -393,39 +428,91 @@ impl CPU {
             0x7f => self.regs.copy(Reg8::A, Reg8::A),
 
             // [0x80, 0xbf] - Arithmetic operations
+            0x80 => self.arith_op(AluOp::Add, lookup::get_flags(opcode), Reg8::B),
+            0x81 => self.arith_op(AluOp::Add, lookup::get_flags(opcode), Reg8::C),
+            0x82 => self.arith_op(AluOp::Add, lookup::get_flags(opcode), Reg8::D),
+            0x83 => self.arith_op(AluOp::Add, lookup::get_flags(opcode), Reg8::E),
+            0x84 => self.arith_op(AluOp::Add, lookup::get_flags(opcode), Reg8::H),
+            0x85 => self.arith_op(AluOp::Add, lookup::get_flags(opcode), Reg8::L),
+            0x87 => self.arith_op(AluOp::Add, lookup::get_flags(opcode), Reg8::A),
+            0x88 => self.arith_op(AluOp::AddCarry, lookup::get_flags(opcode), Reg8::B),
+            0x89 => self.arith_op(AluOp::AddCarry, lookup::get_flags(opcode), Reg8::C),
+            0x8a => self.arith_op(AluOp::AddCarry, lookup::get_flags(opcode), Reg8::D),
+            0x8b => self.arith_op(AluOp::AddCarry, lookup::get_flags(opcode), Reg8::E),
+            0x8c => self.arith_op(AluOp::AddCarry, lookup::get_flags(opcode), Reg8::H),
+            0x8d => self.arith_op(AluOp::AddCarry, lookup::get_flags(opcode), Reg8::L),
+            0x8f => self.arith_op(AluOp::AddCarry, lookup::get_flags(opcode), Reg8::A),
+            0x90 => self.arith_op(AluOp::Sub, lookup::get_flags(opcode), Reg8::B),
+            0x91 => self.arith_op(AluOp::Sub, lookup::get_flags(opcode), Reg8::C),
+            0x92 => self.arith_op(AluOp::Sub, lookup::get_flags(opcode), Reg8::D),
+            0x93 => self.arith_op(AluOp::Sub, lookup::get_flags(opcode), Reg8::E),
+            0x94 => self.arith_op(AluOp::Sub, lookup::get_flags(opcode), Reg8::H),
+            0x95 => self.arith_op(AluOp::Sub, lookup::get_flags(opcode), Reg8::L),
+            0x97 => self.arith_op(AluOp::Sub, lookup::get_flags(opcode), Reg8::A),
+            0x98 => self.arith_op(AluOp::SubCarry, lookup::get_flags(opcode), Reg8::B),
+            0x99 => self.arith_op(AluOp::SubCarry, lookup::get_flags(opcode), Reg8::C),
+            0x9a => self.arith_op(AluOp::SubCarry, lookup::get_flags(opcode), Reg8::D),
+            0x9b => self.arith_op(AluOp::SubCarry, lookup::get_flags(opcode), Reg8::E),
+            0x9c => self.arith_op(AluOp::SubCarry, lookup::get_flags(opcode), Reg8::H),
+            0x9d => self.arith_op(AluOp::SubCarry, lookup::get_flags(opcode), Reg8::L),
+            0x9f => self.arith_op(AluOp::SubCarry, lookup::get_flags(opcode), Reg8::A),
+            0xa0 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::B),
+            0xa1 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::C),
+            0xa2 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::D),
+            0xa3 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::E),
+            0xa4 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::H),
+            0xa5 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::L),
+            0xa7 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::A),
+            0xa8 => self.arith_op(AluOp::Xor, lookup::get_flags(opcode), Reg8::B),
+            0xa9 => self.arith_op(AluOp::Xor, lookup::get_flags(opcode), Reg8::C),
+            0xaa => self.arith_op(AluOp::Xor, lookup::get_flags(opcode), Reg8::D),
+            0xab => self.arith_op(AluOp::Xor, lookup::get_flags(opcode), Reg8::E),
+            0xac => self.arith_op(AluOp::Xor, lookup::get_flags(opcode), Reg8::H),
+            0xad => self.arith_op(AluOp::Xor, lookup::get_flags(opcode), Reg8::L),
+            0xaf => self.arith_op(AluOp::Xor, lookup::get_flags(opcode), Reg8::A),
             0xb0 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::B),
             0xb1 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::C),
             0xb2 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::D),
             0xb3 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::E),
             0xb4 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::H),
             0xb5 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::L),
-            // 0xb6 => AluOp::Or on (HL), TODO: implement Reg8::HL_PTR?
-            0xb7 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::A),
-            0xb8 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::B),
-            0xb9 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::C),
-            0xba => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::D),
-            0xbb => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::E),
-            0xbc => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::H),
-            0xbd => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::L),
-            // 0xbe => Reg8::HL_PTR
-            0xbf => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::A),
+            0xb7 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::A),
+            0xb8 => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::B),
+            0xb9 => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::C),
+            0xba => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::D),
+            0xbb => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::E),
+            0xbc => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::H),
+            0xbd => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::L),
+            0xbf => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::A),
 
             // [0xc0, 0xff] - Flow control, push/pop/call/ret, and other various instructions.
+            0xc0 => self.ret_flag(Flag::Z, true),
             0xc1 => self.pop(Reg16::BC),
+            0xc2 => self.jump_flag(Flag::Z, true, _operand16),
             0xc3 => self.regs.set(Reg16::PC, _operand16),
+            0xc4 => self.call_flag(Flag::Z, true, _operand16),
             0xc5 => self.push(Reg16::BC),
             0xc6 => self.arith_imm(AluOp::Add, lookup::get_flags(opcode), _operand8),
             0xc7 => self.call(0x00),
+            0xc8 => self.ret_flag(Flag::Z, false),
             0xc9 => self.ret(false),
+            0xca => self.jump_flag(Flag::Z, false, _operand16),
             0xcb => self.quit = true, // This shouldn't ever happen
+            0xcc => self.call_flag(Flag::Z, false, _operand16),
             0xcd => self.call(_operand16),
             0xce => self.arith_imm(AluOp::AddCarry, lookup::get_flags(opcode), _operand8),
             0xcf => self.call(0x08),
+            // 0xd0 => self.ret_flag(Flag::CY, true), TODO: Fix CY flag support
             0xd1 => self.pop(Reg16::DE),
+            // 0xd2 => self.jump_flag(Flag::CY, true, _operand16),
+            // 0xd4 => self.call_flag(Flag::CY, true, _operand16),
             0xd5 => self.push(Reg16::DE),
             0xd6 => self.arith_imm(AluOp::Sub, lookup::get_flags(opcode), _operand8),
             0xd7 => self.call(0x10),
+            // 0xd8 => self.ret_flag(Flag::CY, false), TODO: Fix CY flag support
             0xd9 => self.ret(true),
+            // 0xda => self.jump_flag(Flag::CY, false, _operand16),
+            // 0xdc => self.call_flag(Flag::CY, false, _operand16),
             0xde => self.arith_imm(AluOp::SubCarry, lookup::get_flags(opcode), _operand8),
             0xdf => self.call(0x18),
             0xe0 => self.mem.set(self.regs.get(Reg8::A), 0xff00 + (_operand8 as u16)),
