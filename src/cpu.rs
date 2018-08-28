@@ -6,7 +6,6 @@ use registers::*;
 use util;
 use lookup;
 
-
 #[derive(Copy, Clone, PartialEq)]
 enum AluOp {
     Add,
@@ -193,12 +192,13 @@ impl CPU {
 
         let op_a = operand_a.clone();
         let op_b = operand_b.clone();
+        let cy = if carry { T::one() } else { T::zero() };
 
         let result = match op {
-            AluOp::Add      => op_a + op_b,
-            AluOp::AddCarry => op_a + op_b + if carry { T::one() } else { T::zero() },
-            AluOp::Sub      => op_a - op_b,
-            AluOp::SubCarry => op_a - op_b - if carry { T::one() } else { T::zero() },
+            AluOp::Add      => op_a.wrapping_add(&op_b),
+            AluOp::AddCarry => op_a.wrapping_add(&op_b).wrapping_add(&cy),
+            AluOp::Sub      => op_a.wrapping_sub(&op_b),
+            AluOp::SubCarry => op_a.wrapping_sub(&op_b).wrapping_sub(&cy),
             AluOp::And      => op_a & op_b,
             AluOp::Xor      => op_a ^ op_b,
             AluOp::Or       => op_a | op_b,
@@ -233,12 +233,27 @@ impl CPU {
         self.arith_imm(op, flags, operand_b);
     }
 
+    fn arith_hl_ptr(&mut self, op: AluOp, flags: FlagStatus) {
+        let operand_b = self.regs.get(Reg16::HL);
+        let operand_b = self.mem.get(operand_b);
+        self.arith_imm(op, flags, operand_b);
+    }
+
     // Take an immediate u8 instead of a register.
     fn arith_imm(&mut self, op: AluOp, flags: FlagStatus, val: u8) {
         let operand_a = self.regs.get(Reg8::A);
         let carry_bit = self.regs.get_flag(Flag::CY);
         let result = self.alu(op, operand_a, val, carry_bit);
         self.regs.set(Reg8::A, result);
+        self.evaluate_flags(flags);
+    }
+
+    // Add a 16 bit register to HL
+    fn add_hl(&mut self, flags: FlagStatus, src: Reg16) {
+        let operand_a = self.regs.get(Reg16::HL);
+        let operand_b = self.regs.get(src);
+        let result = self.alu(AluOp::Add, operand_a, operand_b, false);
+        self.regs.set(Reg16::HL, result);
         self.evaluate_flags(flags);
     }
 
@@ -316,6 +331,7 @@ impl CPU {
             0x04 => self.regs.add(Reg8::B, 1),
             0x05 => self.regs.sub(Reg8::B, 1),
             0x06 => self.regs.set(Reg8::B, _operand8),
+            0x09 => self.add_hl(lookup::get_flags(opcode), Reg16::BC),
             0x0a => self.get_reg_ptr(Reg8::A, Reg16::BC),
             0x0b => self.regs.sub(Reg16::BC, 1),
             0x0c => self.regs.add(Reg8::C, 1),
@@ -329,6 +345,7 @@ impl CPU {
             0x15 => self.regs.sub(Reg8::D, 1),
             0x16 => self.regs.set(Reg8::D, _operand8),
             0x18 => self.jump_relative(_operand8),
+            0x19 => self.add_hl(lookup::get_flags(opcode), Reg16::DE),
             0x1a => self.get_reg_ptr(Reg8::A, Reg16::DE),
             0x1b => self.regs.sub(Reg16::BC, 1),
             0x1c => self.regs.add(Reg8::D, 1),
@@ -342,19 +359,21 @@ impl CPU {
             0x25 => self.regs.sub(Reg8::H, 1),
             0x26 => self.regs.set(Reg8::H, _operand8),
             0x28 => self.jump_relative_flag(Flag::Z, false, _operand8),
+            0x29 => self.add_hl(lookup::get_flags(opcode), Reg16::HL),
             0x2a => self.ldd_special(false, true),
             0x2b => self.regs.sub(Reg16::HL, 1),
             0x2c => self.regs.add(Reg8::L, 1),
             0x2d => self.regs.sub(Reg8::L, 1),
             0x2e => self.regs.set(Reg8::L, _operand8),
-            0x30 => self.jump_relative_flag(Flag::CY, true, _operand8),
+            // 0x30 => self.jump_relative_flag(Flag::CY, true, _operand8),
             0x31 => self.regs.set(Reg16::SP, _operand16),
             0x32 => self.ldd_special(true, false),
             0x33 => self.regs.add(Reg16::HL, 1),
             0x34 => self.hl_ptr_inc_dec(true),
             0x35 => self.hl_ptr_inc_dec(false),
             0x36 => self.mem.set(_operand8, self.regs.get(Reg16::HL)),
-            0x38 => self.jump_relative_flag(Flag::CY, false, _operand8),
+            // 0x38 => self.jump_relative_flag(Flag::CY, false, _operand8),
+            0x39 => self.add_hl(lookup::get_flags(opcode), Reg16::SP),
             0x3a => self.ldd_special(false, false),
             0x3b => self.regs.sub(Reg16::SP, 1),
             0x3c => self.regs.add(Reg8::A, 1),
@@ -434,6 +453,7 @@ impl CPU {
             0x83 => self.arith_op(AluOp::Add, lookup::get_flags(opcode), Reg8::E),
             0x84 => self.arith_op(AluOp::Add, lookup::get_flags(opcode), Reg8::H),
             0x85 => self.arith_op(AluOp::Add, lookup::get_flags(opcode), Reg8::L),
+            0x86 => self.arith_hl_ptr(AluOp::Add, lookup::get_flags(opcode)),
             0x87 => self.arith_op(AluOp::Add, lookup::get_flags(opcode), Reg8::A),
             0x88 => self.arith_op(AluOp::AddCarry, lookup::get_flags(opcode), Reg8::B),
             0x89 => self.arith_op(AluOp::AddCarry, lookup::get_flags(opcode), Reg8::C),
@@ -441,6 +461,7 @@ impl CPU {
             0x8b => self.arith_op(AluOp::AddCarry, lookup::get_flags(opcode), Reg8::E),
             0x8c => self.arith_op(AluOp::AddCarry, lookup::get_flags(opcode), Reg8::H),
             0x8d => self.arith_op(AluOp::AddCarry, lookup::get_flags(opcode), Reg8::L),
+            0x8e => self.arith_hl_ptr(AluOp::AddCarry, lookup::get_flags(opcode)),
             0x8f => self.arith_op(AluOp::AddCarry, lookup::get_flags(opcode), Reg8::A),
             0x90 => self.arith_op(AluOp::Sub, lookup::get_flags(opcode), Reg8::B),
             0x91 => self.arith_op(AluOp::Sub, lookup::get_flags(opcode), Reg8::C),
@@ -448,6 +469,7 @@ impl CPU {
             0x93 => self.arith_op(AluOp::Sub, lookup::get_flags(opcode), Reg8::E),
             0x94 => self.arith_op(AluOp::Sub, lookup::get_flags(opcode), Reg8::H),
             0x95 => self.arith_op(AluOp::Sub, lookup::get_flags(opcode), Reg8::L),
+            0x96 => self.arith_hl_ptr(AluOp::Sub, lookup::get_flags(opcode)),
             0x97 => self.arith_op(AluOp::Sub, lookup::get_flags(opcode), Reg8::A),
             0x98 => self.arith_op(AluOp::SubCarry, lookup::get_flags(opcode), Reg8::B),
             0x99 => self.arith_op(AluOp::SubCarry, lookup::get_flags(opcode), Reg8::C),
@@ -455,6 +477,7 @@ impl CPU {
             0x9b => self.arith_op(AluOp::SubCarry, lookup::get_flags(opcode), Reg8::E),
             0x9c => self.arith_op(AluOp::SubCarry, lookup::get_flags(opcode), Reg8::H),
             0x9d => self.arith_op(AluOp::SubCarry, lookup::get_flags(opcode), Reg8::L),
+            0x9e => self.arith_hl_ptr(AluOp::SubCarry, lookup::get_flags(opcode)),
             0x9f => self.arith_op(AluOp::SubCarry, lookup::get_flags(opcode), Reg8::A),
             0xa0 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::B),
             0xa1 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::C),
@@ -462,6 +485,7 @@ impl CPU {
             0xa3 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::E),
             0xa4 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::H),
             0xa5 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::L),
+            0xa6 => self.arith_hl_ptr(AluOp::And, lookup::get_flags(opcode)),
             0xa7 => self.arith_op(AluOp::And, lookup::get_flags(opcode), Reg8::A),
             0xa8 => self.arith_op(AluOp::Xor, lookup::get_flags(opcode), Reg8::B),
             0xa9 => self.arith_op(AluOp::Xor, lookup::get_flags(opcode), Reg8::C),
@@ -469,6 +493,7 @@ impl CPU {
             0xab => self.arith_op(AluOp::Xor, lookup::get_flags(opcode), Reg8::E),
             0xac => self.arith_op(AluOp::Xor, lookup::get_flags(opcode), Reg8::H),
             0xad => self.arith_op(AluOp::Xor, lookup::get_flags(opcode), Reg8::L),
+            0xae => self.arith_hl_ptr(AluOp::Xor, lookup::get_flags(opcode)),
             0xaf => self.arith_op(AluOp::Xor, lookup::get_flags(opcode), Reg8::A),
             0xb0 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::B),
             0xb1 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::C),
@@ -476,6 +501,7 @@ impl CPU {
             0xb3 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::E),
             0xb4 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::H),
             0xb5 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::L),
+            0xb6 => self.arith_hl_ptr(AluOp::Or, lookup::get_flags(opcode)),
             0xb7 => self.arith_op(AluOp::Or, lookup::get_flags(opcode), Reg8::A),
             0xb8 => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::B),
             0xb9 => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::C),
@@ -483,6 +509,7 @@ impl CPU {
             0xbb => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::E),
             0xbc => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::H),
             0xbd => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::L),
+            0xbe => self.arith_hl_ptr(AluOp::Comp, lookup::get_flags(opcode)),
             0xbf => self.arith_op(AluOp::Comp, lookup::get_flags(opcode), Reg8::A),
 
             // [0xc0, 0xff] - Flow control, push/pop/call/ret, and other various instructions.

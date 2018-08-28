@@ -8,6 +8,7 @@ use num::Num;
 use num::FromPrimitive;
 use num::traits::{WrappingAdd, WrappingSub};
 
+
 #[derive(Copy, Clone)]
 pub enum Reg8 {
     A,
@@ -174,7 +175,7 @@ impl RegOps<Reg8, u8> for RegisterCache {
             Reg8::D => self.de.get_first(),
             Reg8::E => self.de.get_second(),
             Reg8::H => self.hl.get_first(),
-            Reg8::L => self.hl.get_second(),
+            Reg8::L => self.hl.get_second()
         }
     }
 
@@ -187,7 +188,7 @@ impl RegOps<Reg8, u8> for RegisterCache {
             Reg8::D => self.de.set_first(src),
             Reg8::E => self.de.set_second(src),
             Reg8::H => self.hl.set_first(src),
-            Reg8::L => self.hl.set_second(src),
+            Reg8::L => self.hl.set_second(src)
         }
     }
 }
