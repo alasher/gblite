@@ -2828,7 +2828,7 @@ pub fn get_instruction(opcode: u16) -> Instruction {
         0xcb38 => Instruction {
             opcode: 0x38,
             prefix_cb: true,
-            name: String::from("RL B"),
+            name: String::from("SRL B"),
             bytes: 2,
             clocks: 8,
             clocks_extra: 0,
@@ -2837,7 +2837,7 @@ pub fn get_instruction(opcode: u16) -> Instruction {
         0xcb39 => Instruction {
             opcode: 0x39,
             prefix_cb: true,
-            name: String::from("RL C"),
+            name: String::from("SRL C"),
             bytes: 2,
             clocks: 8,
             clocks_extra: 0,
@@ -2846,7 +2846,7 @@ pub fn get_instruction(opcode: u16) -> Instruction {
         0xcb3a => Instruction {
             opcode: 0x3a,
             prefix_cb: true,
-            name: String::from("RL D"),
+            name: String::from("SRL D"),
             bytes: 2,
             clocks: 8,
             clocks_extra: 0,
@@ -2855,7 +2855,7 @@ pub fn get_instruction(opcode: u16) -> Instruction {
         0xcb3b => Instruction {
             opcode: 0x3b,
             prefix_cb: true,
-            name: String::from("RL E"),
+            name: String::from("SRL E"),
             bytes: 2,
             clocks: 8,
             clocks_extra: 0,
@@ -2864,7 +2864,7 @@ pub fn get_instruction(opcode: u16) -> Instruction {
         0xcb3c => Instruction {
             opcode: 0x3c,
             prefix_cb: true,
-            name: String::from("RL H"),
+            name: String::from("SRL H"),
             bytes: 2,
             clocks: 8,
             clocks_extra: 0,
@@ -2873,7 +2873,7 @@ pub fn get_instruction(opcode: u16) -> Instruction {
         0xcb3d => Instruction {
             opcode: 0x3d,
             prefix_cb: true,
-            name: String::from("RL L"),
+            name: String::from("SRL L"),
             bytes: 2,
             clocks: 8,
             clocks_extra: 0,
@@ -2882,7 +2882,7 @@ pub fn get_instruction(opcode: u16) -> Instruction {
         0xcb3e => Instruction {
             opcode: 0x3e,
             prefix_cb: true,
-            name: String::from("RL (HL)"),
+            name: String::from("SRL (HL)"),
             bytes: 2,
             clocks: 16,
             clocks_extra: 0,
@@ -2891,7 +2891,7 @@ pub fn get_instruction(opcode: u16) -> Instruction {
         0xcb3f => Instruction {
             opcode: 0x3f,
             prefix_cb: true,
-            name: String::from("RL A"),
+            name: String::from("SRL A"),
             bytes: 2,
             clocks: 8,
             clocks_extra: 0,

@@ -300,9 +300,10 @@ impl CPU {
 
         // Adjust opcode if it's a 0xcb prefixed instruction
         let opcode = if opcode == 0xcb {
-            let newop = 0xcb as u16 | _operand8 as u16;
+            let newop = ((0xcb as u16) << 8) | _operand8 as u16;
             let _operand8  = self.mem.get(old_pc+2);
             let _operand16 = self.parse_u16(old_pc+2);
+            println!("Opcode begins with 0xCB!! New opcode is: 0x{:04x}", newop);
             newop
         } else {
             opcode as u16
@@ -564,6 +565,7 @@ impl CPU {
             0xff => self.call(0x38),
             _ => {
                 println!("Fatal error: undefined instruction! Opcode: 0x{:02x}", opcode);
+                self.regs.print_registers();
                 self.quit = true;
             }
         }
