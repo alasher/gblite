@@ -15,7 +15,14 @@ enum AluOp {
     And,
     Xor,
     Or,
-    Comp
+    Comp,
+    RotateLeft(bool),
+    RotateRight(bool),
+    ShiftLeft,
+    ShiftRight(bool),
+    Exchange,
+    Test,
+    Set
 }
 
 pub struct CPU {
@@ -202,7 +209,8 @@ impl CPU {
             AluOp::And      => op_a & op_b,
             AluOp::Xor      => op_a ^ op_b,
             AluOp::Or       => op_a | op_b,
-            AluOp::Comp     => op_a
+            AluOp::Comp     => op_a,
+            _ => panic!("Unimplemented ALU function!")
         };
 
         // Store the result of the last ALU operation in temporary CPU boolean.
@@ -303,7 +311,6 @@ impl CPU {
             let newop = ((0xcb as u16) << 8) | _operand8 as u16;
             let _operand8  = self.mem.get(old_pc+2);
             let _operand16 = self.parse_u16(old_pc+2);
-            println!("Opcode begins with 0xCB!! New opcode is: 0x{:04x}", newop);
             newop
         } else {
             opcode as u16
