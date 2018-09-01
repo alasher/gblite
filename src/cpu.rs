@@ -18,9 +18,9 @@ enum AluOp {
     RotateRight(bool),
     ShiftLeft,
     ShiftRight(bool),
-    Exchange,
-    Test,
-    Set(bool)
+    Swap,
+    Test(u8),
+    Set(u8, bool)
 }
 
 pub struct CPU {
@@ -192,21 +192,19 @@ impl CPU {
 
     // Perform given ALU instruction against the given operands. It's the responsibility of other
     // functions to handle moving the result to a certain register, or setting necessary flags.
-    fn alu<T>(&mut self, op: AluOp, operand_a: T, operand_b: T, carry: bool) -> T
-        where T: RegData<T> {
-
+    fn alu(&mut self, op: AluOp, operand_a: u8, operand_b: u8, carry: bool) -> u8 {
         let op_a = operand_a.clone();
         let op_b = operand_b.clone();
-        let cy = if carry { T::one() } else { T::zero() };
+        let cy = if carry { 1u8 } else { 0u8 };
 
         let result = match op {
             AluOp::Add(carry) => {
-                let val = op_a.wrapping_add(&op_b);
-                if carry { val.wrapping_add(&cy) } else { val }
+                let val = op_a.wrapping_add(op_b);
+                if carry { val.wrapping_add(cy) } else { val }
             },
             AluOp::Sub(carry) => {
-                let val = op_a.wrapping_sub(&op_b);
-                if carry { val.wrapping_sub(&cy) } else { val }
+                let val = op_a.wrapping_sub(op_b);
+                if carry { val.wrapping_sub(cy) } else { val }
             },
             AluOp::And      => op_a & op_b,
             AluOp::Xor      => op_a ^ op_b,
@@ -219,11 +217,11 @@ impl CPU {
         // We don't commit these to the RegisterCache yet because it's possible for 
         // an instruction to ignore this result. Compare instructions re-use these flags.
         if op != AluOp::Comp {
-            self.was_zero = result == T::from_i8(0).expect("Conversion error.");
+            self.was_zero = result == 0u8;
             // self.half_carry =
             // self.full_carry =
         } else {
-            let mask = T::from_u8(0xf).expect("Conversion error.");
+            let mask = 0xfu8;
             self.was_zero   = op_a == op_b;
             self.half_carry = op_a < op_b;
             self.full_carry = (op_a & mask) < (op_b & mask);
@@ -235,6 +233,19 @@ impl CPU {
         }
 
         result
+    }
+
+    // As it turns out, adding/subtracting is really the only 16-bit ALU operation
+    fn add_u16(&mut self, operand_a: u16, operand_b: u16, subtract: bool) -> u16 {
+        match subtract {
+            false => {
+                let add16res = operand_a.overflowing_add(operand_b);
+                self.full_carry = add16res.1;
+                self.half_carry = ((operand_a & 0xfff) + (operand_b & 0xfff)) > 0xfff;
+                add16res.0
+            },
+            true  => operand_a.wrapping_sub(operand_b)
+        }
     }
 
     // Perform ALU op on accumulator and input register, and handle flags.
@@ -262,7 +273,7 @@ impl CPU {
     fn add_hl(&mut self, flags: FlagStatus, src: Reg16) {
         let operand_a = self.regs.get(Reg16::HL);
         let operand_b = self.regs.get(src);
-        let result = self.alu(AluOp::Add(false), operand_a, operand_b, false);
+        let result = self.add_u16(operand_a, operand_b, false);
         self.regs.set(Reg16::HL, result);
         self.evaluate_flags(flags);
     }
