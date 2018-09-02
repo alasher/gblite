@@ -258,7 +258,17 @@ impl CPU {
                 self.half_carry = op_a < op_b;
                 self.full_carry = (op_a & 0xf) < (op_b & 0xf);
                 op_a
+            },
+            AluOp::ShiftRight(is_arith) => {
+                let fill_bit = is_arith && (op_a & 0x80 != 0);
+                let val = op_a >> 1;
+                if fill_bit {
+                    val | 0x80
+                } else {
+                    val & 0x7f
+                }
             }
+
             _ => panic!("Unimplemented ALU function!")
         };
 
@@ -290,20 +300,20 @@ impl CPU {
     // Perform ALU op on accumulator and input register, and handle flags.
     fn arith_op(&mut self, op: AluOp, flags: FlagStatus, src: Reg8) {
         let operand_b = self.regs.get(src);
-        self.arith_imm(op, flags, operand_b);
+        self.arith_imm(op, Reg8::A, flags, operand_b);
     }
 
     fn arith_hl_ptr(&mut self, op: AluOp, flags: FlagStatus) {
         let operand_b = self.regs.get(Reg16::HL);
         let operand_b = self.mem.get(operand_b);
-        self.arith_imm(op, flags, operand_b);
+        self.arith_imm(op, Reg8::A, flags, operand_b);
     }
 
     // Take an immediate u8 instead of a register.
-    fn arith_imm(&mut self, op: AluOp, flags: FlagStatus, val: u8) {
-        let operand_a = self.regs.get(Reg8::A);
+    fn arith_imm(&mut self, op: AluOp, dst_reg: Reg8, flags: FlagStatus, val: u8) {
+        let operand_a = self.regs.get(dst_reg);
         let result = self.alu(op, operand_a, val);
-        self.regs.set(Reg8::A, result);
+        self.regs.set(dst_reg, result);
         self.evaluate_flags(flags);
     }
 
@@ -390,12 +400,15 @@ impl CPU {
             0x04 => self.regs.add(Reg8::B, 1),
             0x05 => self.regs.sub(Reg8::B, 1),
             0x06 => self.regs.set(Reg8::B, _operand8),
+            // 0x07
+            // 0x08
             0x09 => self.add_hl(lookup::get_flags(opcode), Reg16::BC),
             0x0a => self.get_reg_ptr(Reg8::A, Reg16::BC),
             0x0b => self.regs.sub(Reg16::BC, 1),
             0x0c => self.regs.add(Reg8::C, 1),
             0x0d => self.regs.sub(Reg8::C, 1),
             0x0e => self.regs.set(Reg8::C, _operand8),
+            // 0x0f
             0x10 => self.stop(),
             0x11 => self.regs.set(Reg16::DE, _operand16),
             0x12 => self.set_reg_ptr(Reg16::DE, Reg8::A),
@@ -403,6 +416,7 @@ impl CPU {
             0x14 => self.regs.add(Reg8::D, 1),
             0x15 => self.regs.sub(Reg8::D, 1),
             0x16 => self.regs.set(Reg8::D, _operand8),
+            // 0x17
             0x18 => self.jump_relative(_operand8),
             0x19 => self.add_hl(lookup::get_flags(opcode), Reg16::DE),
             0x1a => self.get_reg_ptr(Reg8::A, Reg16::DE),
@@ -410,6 +424,7 @@ impl CPU {
             0x1c => self.regs.add(Reg8::D, 1),
             0x1d => self.regs.sub(Reg8::D, 1),
             0x1e => self.regs.set(Reg8::E, _operand8),
+            // 0x1f
             0x20 => self.jump_relative_flag(Flag::Z, true, _operand8),
             0x21 => self.regs.set(Reg16::HL, _operand16),
             0x22 => self.ldd_special(true, true),
@@ -417,6 +432,7 @@ impl CPU {
             0x24 => self.regs.add(Reg8::H, 1),
             0x25 => self.regs.sub(Reg8::H, 1),
             0x26 => self.regs.set(Reg8::H, _operand8),
+            // 0x27
             0x28 => self.jump_relative_flag(Flag::Z, false, _operand8),
             0x29 => self.add_hl(lookup::get_flags(opcode), Reg16::HL),
             0x2a => self.ldd_special(false, true),
@@ -424,20 +440,23 @@ impl CPU {
             0x2c => self.regs.add(Reg8::L, 1),
             0x2d => self.regs.sub(Reg8::L, 1),
             0x2e => self.regs.set(Reg8::L, _operand8),
-            // 0x30 => self.jump_relative_flag(Flag::CY, true, _operand8),
+            // 0x2f
+            0x30 => self.jump_relative_flag(Flag::CY, true, _operand8),
             0x31 => self.regs.set(Reg16::SP, _operand16),
             0x32 => self.ldd_special(true, false),
             0x33 => self.regs.add(Reg16::HL, 1),
             0x34 => self.hl_ptr_inc_dec(true),
             0x35 => self.hl_ptr_inc_dec(false),
             0x36 => self.mem.set(_operand8, self.regs.get(Reg16::HL)),
-            // 0x38 => self.jump_relative_flag(Flag::CY, false, _operand8),
+            // 0x37
+            0x38 => self.jump_relative_flag(Flag::CY, false, _operand8),
             0x39 => self.add_hl(lookup::get_flags(opcode), Reg16::SP),
             0x3a => self.ldd_special(false, false),
             0x3b => self.regs.sub(Reg16::SP, 1),
             0x3c => self.regs.add(Reg8::A, 1),
             0x3d => self.regs.sub(Reg8::A, 1),
             0x3e => self.regs.set(Reg8::A, _operand8),
+            // 0x3f
 
             // [0x40, 0x7f] - Mostly copy instructions between registers and (HL).
             0x40 => self.regs.copy(Reg8::B, Reg8::B),
@@ -578,7 +597,7 @@ impl CPU {
             0xc3 => self.regs.set(Reg16::PC, _operand16),
             0xc4 => self.call_flag(Flag::Z, true, _operand16),
             0xc5 => self.push(Reg16::BC),
-            0xc6 => self.arith_imm(AluOp::Add(false), lookup::get_flags(opcode), _operand8),
+            0xc6 => self.arith_imm(AluOp::Add(false), Reg8::A, lookup::get_flags(opcode), _operand8),
             0xc7 => self.call(0x00),
             0xc8 => self.ret_flag(Flag::Z, false),
             0xc9 => self.ret(false),
@@ -586,41 +605,69 @@ impl CPU {
             0xcb => self.quit = true, // This shouldn't ever happen
             0xcc => self.call_flag(Flag::Z, false, _operand16),
             0xcd => self.call(_operand16),
-            0xce => self.arith_imm(AluOp::Add(true), lookup::get_flags(opcode), _operand8),
+            0xce => self.arith_imm(AluOp::Add(true), Reg8::A, lookup::get_flags(opcode), _operand8),
             0xcf => self.call(0x08),
-            // 0xd0 => self.ret_flag(Flag::CY, true), TODO: Fix CY flag support
+            0xd0 => self.ret_flag(Flag::CY, true),
             0xd1 => self.pop(Reg16::DE),
-            // 0xd2 => self.jump_flag(Flag::CY, true, _operand16),
-            // 0xd4 => self.call_flag(Flag::CY, true, _operand16),
+            0xd2 => self.jump_flag(Flag::CY, true, _operand16),
+            0xd3 => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
+            0xd4 => self.call_flag(Flag::CY, true, _operand16),
             0xd5 => self.push(Reg16::DE),
-            0xd6 => self.arith_imm(AluOp::Sub(false), lookup::get_flags(opcode), _operand8),
+            0xd6 => self.arith_imm(AluOp::Sub(false), Reg8::A, lookup::get_flags(opcode), _operand8),
             0xd7 => self.call(0x10),
-            // 0xd8 => self.ret_flag(Flag::CY, false), TODO: Fix CY flag support
+            0xd8 => self.ret_flag(Flag::CY, false),
             0xd9 => self.ret(true),
-            // 0xda => self.jump_flag(Flag::CY, false, _operand16),
-            // 0xdc => self.call_flag(Flag::CY, false, _operand16),
-            0xde => self.arith_imm(AluOp::Sub(true), lookup::get_flags(opcode), _operand8),
+            0xda => self.jump_flag(Flag::CY, false, _operand16),
+            0xdb => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
+            0xdc => self.call_flag(Flag::CY, false, _operand16),
+            0xdd => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
+            0xde => self.arith_imm(AluOp::Sub(true), Reg8::A, lookup::get_flags(opcode), _operand8),
             0xdf => self.call(0x18),
             0xe0 => self.mem.set(self.regs.get(Reg8::A), 0xff00 + (_operand8 as u16)),
             0xe1 => self.pop(Reg16::HL),
             0xe2 => self.ld_fast_page(true),
+            0xe3 => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
+            0xe4 => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xe5 => self.push(Reg16::HL),
-            0xe6 => self.arith_imm(AluOp::And, lookup::get_flags(opcode), _operand8),
+            0xe6 => self.arith_imm(AluOp::And, Reg8::A, lookup::get_flags(opcode), _operand8),
             0xe7 => self.call(0x20),
+            // 0xe8
+            // 0xe9
             0xea => self.mem.set(self.regs.get(Reg8::A), _operand16),
-            0xee => self.arith_imm(AluOp::Xor, lookup::get_flags(opcode), _operand8),
+            0xeb => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
+            0xec => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
+            0xed => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
+            0xee => self.arith_imm(AluOp::Xor, Reg8::A, lookup::get_flags(opcode), _operand8),
             0xef => self.call(0x28),
             0xf0 => self.regs.set(Reg8::A, self.mem.get(0xff00 + (_operand8 as u16))),
             0xf1 => self.pop(Reg16::AF),
             0xf2 => self.ld_fast_page(false),
             0xf3 => self.ir_enabled = false,
+            0xf4 => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xf5 => self.push(Reg16::AF),
-            0xf6 => self.arith_imm(AluOp::Or, lookup::get_flags(opcode), _operand8),
+            0xf6 => self.arith_imm(AluOp::Or, Reg8::A, lookup::get_flags(opcode), _operand8),
             0xf7 => self.call(0x30),
+            // 0xf8
+            // 0xf9
             0xfa => self.regs.set(Reg8::A, self.mem.get(_operand16)),
             0xfb => self.ir_enabled = true,
-            0xfe => self.arith_imm(AluOp::Comp, lookup::get_flags(opcode), _operand8),
+            0xfc => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
+            0xfd => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
+            0xfe => self.arith_imm(AluOp::Comp, Reg8::A, lookup::get_flags(opcode), _operand8),
             0xff => self.call(0x38),
+
+            // [0xcb00, 0xcb3f] - Bitwise rotate, shift, and swap.
+            0xcb38 => self.arith_imm(AluOp::ShiftRight(false), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb39 => self.arith_imm(AluOp::ShiftRight(false), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb3a => self.arith_imm(AluOp::ShiftRight(false), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb3b => self.arith_imm(AluOp::ShiftRight(false), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb3c => self.arith_imm(AluOp::ShiftRight(false), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb3d => self.arith_imm(AluOp::ShiftRight(false), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb3f => self.arith_imm(AluOp::ShiftRight(false), Reg8::A, lookup::get_flags(opcode), 0),
+
+            // [0xcb40, 0xcb7f] - Bit test, push value to Z flag
+            // [0xcb80, 0xcbb9] - Reset bit to 0
+            // [0xcbc0, 0xcbf9] - Set bit to 1
             _ => {
                 println!("Fatal error: undefined instruction! Opcode: 0x{:02x}", opcode);
                 self.regs.print_registers();
