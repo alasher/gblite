@@ -259,16 +259,44 @@ impl CPU {
                 self.full_carry = (op_a & 0xf) < (op_b & 0xf);
                 op_a
             },
-            AluOp::ShiftRight(is_arith) => {
-                let fill_bit = is_arith && (op_a & 0x80 != 0);
-                let val = op_a >> 1;
-                if fill_bit {
-                    val | 0x80
+            AluOp::RotateLeft(carry_op) => {
+                let edge_bit = (op_a & 0x80) != 0;
+                let rotate_bit = if carry_op { edge_bit } else { self.full_carry };
+                self.full_carry = edge_bit;
+                if rotate_bit {
+                    (op_a << 1) | 0x1
                 } else {
-                    val & 0x7f
+                    op_a << 1
                 }
+            },
+            AluOp::RotateRight(carry_op) => {
+                let edge_bit = (op_a & 0x1) != 0;
+                let rotate_bit = if carry_op { edge_bit } else { self.full_carry };
+                self.full_carry = edge_bit;
+                if rotate_bit {
+                    (op_a >> 1) | 0x80
+                } else {
+                    op_a >> 1
+                }
+            },
+            AluOp::ShiftRight(is_arith) => {
+                self.full_carry = (op_a & 0x1) != 0;
+                let fill_bit = is_arith && (op_a & 0x80 != 0);
+                if fill_bit {
+                    (op_a >> 1) | 0x80
+                } else {
+                    op_a >> 1
+                }
+            },
+            AluOp::ShiftLeft => {
+                self.full_carry = (op_a & 0x80) != 0;
+                op_a << 1
+            },
+            AluOp::Swap => {
+                op_a.wrapping_shl(8) | op_a.wrapping_shr(8)
             }
-
+            // TODO: Test(u8),
+            // TODO: Set(u8, bool)
             _ => panic!("Unimplemented ALU function!")
         };
 
@@ -400,7 +428,7 @@ impl CPU {
             0x04 => self.regs.add(Reg8::B, 1),
             0x05 => self.regs.sub(Reg8::B, 1),
             0x06 => self.regs.set(Reg8::B, _operand8),
-            // 0x07
+            0x07 => self.arith_imm(AluOp::RotateLeft(true), Reg8::A, lookup::get_flags(opcode), 0),
             // 0x08
             0x09 => self.add_hl(lookup::get_flags(opcode), Reg16::BC),
             0x0a => self.get_reg_ptr(Reg8::A, Reg16::BC),
@@ -408,7 +436,7 @@ impl CPU {
             0x0c => self.regs.add(Reg8::C, 1),
             0x0d => self.regs.sub(Reg8::C, 1),
             0x0e => self.regs.set(Reg8::C, _operand8),
-            // 0x0f
+            0x0f => self.arith_imm(AluOp::RotateRight(true), Reg8::A, lookup::get_flags(opcode), 0),
             0x10 => self.stop(),
             0x11 => self.regs.set(Reg16::DE, _operand16),
             0x12 => self.set_reg_ptr(Reg16::DE, Reg8::A),
@@ -416,7 +444,7 @@ impl CPU {
             0x14 => self.regs.add(Reg8::D, 1),
             0x15 => self.regs.sub(Reg8::D, 1),
             0x16 => self.regs.set(Reg8::D, _operand8),
-            // 0x17
+            0x17 => self.arith_imm(AluOp::RotateLeft(false), Reg8::A, lookup::get_flags(opcode), 0),
             0x18 => self.jump_relative(_operand8),
             0x19 => self.add_hl(lookup::get_flags(opcode), Reg16::DE),
             0x1a => self.get_reg_ptr(Reg8::A, Reg16::DE),
@@ -424,7 +452,7 @@ impl CPU {
             0x1c => self.regs.add(Reg8::D, 1),
             0x1d => self.regs.sub(Reg8::D, 1),
             0x1e => self.regs.set(Reg8::E, _operand8),
-            // 0x1f
+            0x1f => self.arith_imm(AluOp::RotateRight(false), Reg8::A, lookup::get_flags(opcode), 0),
             0x20 => self.jump_relative_flag(Flag::Z, true, _operand8),
             0x21 => self.regs.set(Reg16::HL, _operand16),
             0x22 => self.ldd_special(true, true),
@@ -657,12 +685,69 @@ impl CPU {
             0xff => self.call(0x38),
 
             // [0xcb00, 0xcb3f] - Bitwise rotate, shift, and swap.
+            0xcb00 => self.arith_imm(AluOp::RotateLeft(true), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb01 => self.arith_imm(AluOp::RotateLeft(true), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb02 => self.arith_imm(AluOp::RotateLeft(true), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb03 => self.arith_imm(AluOp::RotateLeft(true), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb04 => self.arith_imm(AluOp::RotateLeft(true), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb05 => self.arith_imm(AluOp::RotateLeft(true), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb06 => (),
+            0xcb07 => self.arith_imm(AluOp::RotateLeft(true), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb08 => self.arith_imm(AluOp::RotateRight(true), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb09 => self.arith_imm(AluOp::RotateRight(true), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb0a => self.arith_imm(AluOp::RotateRight(true), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb0b => self.arith_imm(AluOp::RotateRight(true), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb0c => self.arith_imm(AluOp::RotateRight(true), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb0d => self.arith_imm(AluOp::RotateRight(true), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb0e => (),
+            0xcb0f => self.arith_imm(AluOp::RotateRight(true), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb10 => self.arith_imm(AluOp::RotateLeft(false), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb11 => self.arith_imm(AluOp::RotateLeft(false), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb12 => self.arith_imm(AluOp::RotateLeft(false), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb13 => self.arith_imm(AluOp::RotateLeft(false), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb14 => self.arith_imm(AluOp::RotateLeft(false), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb15 => self.arith_imm(AluOp::RotateLeft(false), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb16 => (),
+            0xcb17 => self.arith_imm(AluOp::RotateLeft(false), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb18 => self.arith_imm(AluOp::RotateRight(false), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb19 => self.arith_imm(AluOp::RotateRight(false), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb1a => self.arith_imm(AluOp::RotateRight(false), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb1b => self.arith_imm(AluOp::RotateRight(false), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb1c => self.arith_imm(AluOp::RotateRight(false), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb1d => self.arith_imm(AluOp::RotateRight(false), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb1e => (),
+            0xcb1f => self.arith_imm(AluOp::RotateRight(false), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb20 => self.arith_imm(AluOp::ShiftLeft, Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb21 => self.arith_imm(AluOp::ShiftLeft, Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb22 => self.arith_imm(AluOp::ShiftLeft, Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb23 => self.arith_imm(AluOp::ShiftLeft, Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb24 => self.arith_imm(AluOp::ShiftLeft, Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb25 => self.arith_imm(AluOp::ShiftLeft, Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb26 => (),
+            0xcb27 => self.arith_imm(AluOp::ShiftLeft, Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb28 => self.arith_imm(AluOp::ShiftRight(true), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb29 => self.arith_imm(AluOp::ShiftRight(true), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb2a => self.arith_imm(AluOp::ShiftRight(true), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb2b => self.arith_imm(AluOp::ShiftRight(true), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb2c => self.arith_imm(AluOp::ShiftRight(true), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb2d => self.arith_imm(AluOp::ShiftRight(true), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb2e => (),
+            0xcb2f => self.arith_imm(AluOp::ShiftRight(true), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb30 => self.arith_imm(AluOp::Swap, Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb31 => self.arith_imm(AluOp::Swap, Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb32 => self.arith_imm(AluOp::Swap, Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb33 => self.arith_imm(AluOp::Swap, Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb34 => self.arith_imm(AluOp::Swap, Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb35 => self.arith_imm(AluOp::Swap, Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb36 => (),
+            0xcb37 => self.arith_imm(AluOp::Swap, Reg8::A, lookup::get_flags(opcode), 0),
             0xcb38 => self.arith_imm(AluOp::ShiftRight(false), Reg8::B, lookup::get_flags(opcode), 0),
             0xcb39 => self.arith_imm(AluOp::ShiftRight(false), Reg8::C, lookup::get_flags(opcode), 0),
             0xcb3a => self.arith_imm(AluOp::ShiftRight(false), Reg8::D, lookup::get_flags(opcode), 0),
             0xcb3b => self.arith_imm(AluOp::ShiftRight(false), Reg8::E, lookup::get_flags(opcode), 0),
             0xcb3c => self.arith_imm(AluOp::ShiftRight(false), Reg8::H, lookup::get_flags(opcode), 0),
             0xcb3d => self.arith_imm(AluOp::ShiftRight(false), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb3e => (),
             0xcb3f => self.arith_imm(AluOp::ShiftRight(false), Reg8::A, lookup::get_flags(opcode), 0),
 
             // [0xcb40, 0xcb7f] - Bit test, push value to Z flag
