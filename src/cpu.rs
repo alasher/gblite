@@ -6,6 +6,8 @@ use registers::*;
 use util;
 use lookup;
 
+use std::fmt;
+
 #[derive(Copy, Clone, PartialEq)]
 enum AluOp {
     Add(bool),
@@ -21,6 +23,28 @@ enum AluOp {
     Swap,
     Test(u8),
     Set(u8, bool)
+}
+
+impl fmt::Display for AluOp {
+    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
+        let op_name = match *self {
+            AluOp::Add(c) => if c { format!("AddCarry") } else { format!("Add") },
+            AluOp::Sub(c) => if c { format!("SubCarry") } else { format!("Sub") },
+            AluOp::And => format!("And"),
+            AluOp::Xor => format!("Xor"),
+            AluOp::Or => format!("Or"),
+            AluOp::Comp => format!("Comp"),
+            AluOp::RotateLeft(c) => if c { format!("RotateLeftCarry") } else { format!("RotateLeft") },
+            AluOp::RotateRight(c) => if c { format!("RotateRightCarry") } else { format!("RotateRight") },
+            AluOp::ShiftLeft => format!("ShiftLeft"),
+            AluOp::ShiftRight(c) => if c { format!("ShiftRightArithmetic") } else { format!("ShiftRightLogical") },
+            AluOp::Swap => format!("Swap"),
+            AluOp::Test(x) => format!("TestBit{}", x),
+            AluOp::Set(x, val) => format!("SetBit{}To{}", x, if val { '1' } else { '0' })
+        };
+
+        write!(f, "{}", op_name)
+    }
 }
 
 pub struct CPU {
@@ -192,44 +216,59 @@ impl CPU {
 
     // Perform given ALU instruction against the given operands. It's the responsibility of other
     // functions to handle moving the result to a certain register, or setting necessary flags.
-    fn alu(&mut self, op: AluOp, operand_a: u8, operand_b: u8, carry: bool) -> u8 {
-        let op_a = operand_a.clone();
-        let op_b = operand_b.clone();
-        let cy = if carry { 1u8 } else { 0u8 };
+    fn alu(&mut self, op: AluOp, operand_a: u8, operand_b: u8) -> u8 {
+        let carry_bit = self.regs.get_flag(Flag::CY);
+
+        let op_a = operand_a;
+        let op_b = operand_b;
 
         let result = match op {
-            AluOp::Add(carry) => {
-                let val = op_a.wrapping_add(op_b);
-                if carry { val.wrapping_add(cy) } else { val }
+            AluOp::Add(carry_op) => {
+                let (val, overflow) = op_a.overflowing_add(op_b);
+                let half_val = (op_a & 0xf) + (op_b & 0xf);
+                self.half_carry = half_val > 0xf;
+                self.full_carry = overflow;
+                if carry_op && carry_bit {
+                    let (new_val, new_overflow) = op_a.overflowing_add(1);
+                    self.half_carry = self.half_carry || (half_val+1) > 0xf;
+                    self.full_carry = self.full_carry || new_overflow;
+                    new_val
+                } else {
+                    val // test
+                }
             },
-            AluOp::Sub(carry) => {
-                let val = op_a.wrapping_sub(op_b);
-                if carry { val.wrapping_sub(cy) } else { val }
+            AluOp::Sub(carry_op) => {
+                let (val, overflow) = op_a.overflowing_sub(op_b);
+                let (half_val, half_overflow) = (op_a & 0xf0).overflowing_sub(op_b & 0xf0);
+                self.half_carry = half_overflow;
+                self.full_carry = overflow;
+                if carry_op && carry_bit {
+                    let (new_val, new_overflow) = op_a.overflowing_sub(1);
+                    self.half_carry = self.half_carry || (half_val-1) <= 0xf;
+                    self.full_carry = self.full_carry || new_overflow;
+                    new_val
+                } else {
+                    val
+                }
             },
             AluOp::And      => op_a & op_b,
             AluOp::Xor      => op_a ^ op_b,
             AluOp::Or       => op_a | op_b,
-            AluOp::Comp     => op_a,
+            AluOp::Comp     => {
+                self.half_carry = op_a < op_b;
+                self.full_carry = (op_a & 0xf) < (op_b & 0xf);
+                op_a
+            }
             _ => panic!("Unimplemented ALU function!")
         };
 
-        // Store the result of the last ALU operation in temporary CPU boolean.
-        // We don't commit these to the RegisterCache yet because it's possible for 
-        // an instruction to ignore this result. Compare instructions re-use these flags.
         if op != AluOp::Comp {
-            self.was_zero = result == 0u8;
-            // self.half_carry =
-            // self.full_carry =
-        } else {
-            let mask = 0xfu8;
-            self.was_zero   = op_a == op_b;
-            self.half_carry = op_a < op_b;
-            self.full_carry = (op_a & mask) < (op_b & mask);
+            self.was_zero = result == 0;
         }
 
         if cfg!(debug_assertions) {
-            println!("Result of ALU instruction with input {}, {} => {}. Z: {}, H: {}, CY: {}",
-                     operand_a, operand_b, result, self.was_zero, self.half_carry, self.full_carry);
+            println!("Result of ALU instruction {} with input {}, {} => {}. Z: {}, H: {}, CY: {}",
+                     op, op_a, op_b, result, self.was_zero, self.half_carry, self.full_carry);
         }
 
         result
@@ -263,8 +302,7 @@ impl CPU {
     // Take an immediate u8 instead of a register.
     fn arith_imm(&mut self, op: AluOp, flags: FlagStatus, val: u8) {
         let operand_a = self.regs.get(Reg8::A);
-        let carry_bit = self.regs.get_flag(Flag::CY);
-        let result = self.alu(op, operand_a, val, carry_bit);
+        let result = self.alu(op, operand_a, val);
         self.regs.set(Reg8::A, result);
         self.evaluate_flags(flags);
     }
