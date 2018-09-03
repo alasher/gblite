@@ -77,10 +77,6 @@ impl CPU {
         }
     }
 
-    pub fn get_pc(&self) -> u16 {
-        self.regs.get(Reg16::PC)
-    }
-
     // Get the u16 value starting at $(addr), little endian.
     fn parse_u16(&self, addr: u16) -> u16 {
         util::join_u8((self.mem.get(addr), self.mem.get(addr+1)))
@@ -175,6 +171,12 @@ impl CPU {
         }
     }
 
+    fn write_sp_to_ptr(&mut self, addr: u16) {
+        let split_addr = util::split_u16(self.regs.get(Reg16::SP));
+        self.mem.set(split_addr.0, addr);
+        self.mem.set(split_addr.1, addr+1);
+    }
+
     // Increment/decrement for (HL) value. TODO: should this be done another way? Maybe implement
     // it as a Reg8::HL_PTR, or something special in ALU?
     fn hl_ptr_inc_dec(&mut self, is_add: bool) {
@@ -194,6 +196,12 @@ impl CPU {
        if flag_val ^ if_unset {
            self.regs.set(Reg16::PC, addr);
        }
+    }
+
+    fn jump_hl_ptr(&mut self) {
+        let addr = self.regs.get(Reg16::HL);
+        let addr = self.parse_u16(addr);
+        self.regs.set(Reg16::PC, addr);
     }
 
     // Jump only if flag is set (or unset)
@@ -361,6 +369,15 @@ impl CPU {
         self.evaluate_flags(flags);
     }
 
+    fn add_sp_signed(&mut self, flags: FlagStatus, num: i8) {
+        let sub = num < 0;
+        let num = (num as u8) as u16;
+        let sp_val = self.regs.get(Reg16::SP);
+        let sp_val = self.add_u16(sp_val, num, sub);
+        self.regs.set(Reg16::SP, sp_val);
+        self.evaluate_flags(flags);
+    }
+
     fn evaluate_flags(&mut self, flags: FlagStatus) {
         self.evaluate_flag(Flag::Z,  flags.z);
         self.evaluate_flag(Flag::N,  flags.n);
@@ -426,6 +443,10 @@ impl CPU {
         // matures a little.
         self.print_instruction_info(&inst, old_pc);
 
+        if self.regs.get(Reg16::BC) == 0xFFFe {
+            self.step = true;
+        }
+
         if self.breaks.contains(&old_pc) || self.step {
             self.step = false;
             self.regs.print_registers();
@@ -442,7 +463,7 @@ impl CPU {
             0x05 => self.regs.sub(Reg8::B, 1),
             0x06 => self.regs.set(Reg8::B, _operand8),
             0x07 => self.arith_imm(AluOp::RotateLeft(true), Reg8::A, lookup::get_flags(opcode), 0),
-            // 0x08
+            0x08 => self.write_sp_to_ptr(_operand16),
             0x09 => self.add_hl(lookup::get_flags(opcode), Reg16::BC),
             0x0a => self.get_reg_ptr(Reg8::A, Reg16::BC),
             0x0b => self.regs.sub(Reg16::BC, 1),
@@ -481,7 +502,7 @@ impl CPU {
             0x2c => self.regs.add(Reg8::L, 1),
             0x2d => self.regs.sub(Reg8::L, 1),
             0x2e => self.regs.set(Reg8::L, _operand8),
-            // 0x2f
+            0x2f => self.arith_imm(AluOp::Xor, Reg8::A, lookup::get_flags(opcode), 0xff),
             0x30 => self.jump_relative_flag(Flag::CY, true, _operand8),
             0x31 => self.regs.set(Reg16::SP, _operand16),
             0x32 => self.ldd_special(true, false),
@@ -672,8 +693,8 @@ impl CPU {
             0xe5 => self.push(Reg16::HL),
             0xe6 => self.arith_imm(AluOp::And, Reg8::A, lookup::get_flags(opcode), _operand8),
             0xe7 => self.call(0x20),
-            // 0xe8
-            // 0xe9
+            0xe8 => self.add_sp_signed(lookup::get_flags(opcode), _operand8 as i8),
+            0xe9 => self.jump_hl_ptr(),
             0xea => self.mem.set(self.regs.get(Reg8::A), _operand16),
             0xeb => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xec => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
@@ -689,7 +710,7 @@ impl CPU {
             0xf6 => self.arith_imm(AluOp::Or, Reg8::A, lookup::get_flags(opcode), _operand8),
             0xf7 => self.call(0x30),
             // 0xf8
-            // 0xf9
+            0xf9 => self.regs.copy(Reg16::SP, Reg16::HL),
             0xfa => self.regs.set(Reg8::A, self.mem.get(_operand16)),
             0xfb => self.ir_enabled = true,
             0xfc => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
@@ -792,12 +813,12 @@ impl CPU {
     }
 
     fn handle_breakpoint(&mut self, addr: u16) {
-        print!("Breaking at PC {}\nPress \'c\' to continue, \'s\' to step: ", addr);
+        print!("Breaking at PC 0x{:04x}\nPress \'c\' to continue, \'n\' to step next: ", addr);
         let mut selection = String::new();
         io::stdout().flush().ok().expect("Problem flushing stdout.");
         io::stdin().read_line(&mut selection).expect("Could not read from stdin!");
         selection = selection.trim_matches(char::is_whitespace).to_string();
-        if selection == "s" {
+        if selection == "s" || selection == "n" {
             self.step = true;
         }
     }
