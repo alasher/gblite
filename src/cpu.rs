@@ -7,6 +7,9 @@ use util;
 use lookup;
 
 use std::fmt;
+use std::io;
+use std::io::Write;
+use std::collections::HashSet;
 
 #[derive(Copy, Clone, PartialEq)]
 enum AluOp {
@@ -54,7 +57,9 @@ pub struct CPU {
     quit: bool,
     was_zero: bool,
     half_carry: bool,
-    full_carry: bool
+    full_carry: bool,
+    step: bool,
+    breaks: HashSet<u16>
 }
 
 impl CPU {
@@ -66,7 +71,9 @@ impl CPU {
             quit: false,
             was_zero: false,
             half_carry: false,
-            full_carry: false
+            full_carry: false,
+            step: false,
+            breaks: HashSet::new()
         }
     }
 
@@ -416,8 +423,14 @@ impl CPU {
         self.regs.set(Reg16::PC, old_pc + bytes);
 
         // Print info about this instruction. Leaving this on all the time until the software
-        // matures a little. development
+        // matures a little.
         self.print_instruction_info(&inst, old_pc);
+
+        if self.breaks.contains(&old_pc) || self.step {
+            self.step = false;
+            self.regs.print_registers();
+            self.handle_breakpoint(old_pc);
+        }
 
         match opcode {
             // [0x00, 0x3f] - Load, INC/DEC, some jumps, and other various instructions.
@@ -772,5 +785,20 @@ impl CPU {
             }
         }
         println!("{}", pstr);
+    }
+
+    pub fn add_breakpoint(&mut self, addr: u16) {
+        self.breaks.insert(addr);
+    }
+
+    fn handle_breakpoint(&mut self, addr: u16) {
+        print!("Breaking at PC {}\nPress \'c\' to continue, \'s\' to step: ", addr);
+        let mut selection = String::new();
+        io::stdout().flush().ok().expect("Problem flushing stdout.");
+        io::stdin().read_line(&mut selection).expect("Could not read from stdin!");
+        selection = selection.trim_matches(char::is_whitespace).to_string();
+        if selection == "s" {
+            self.step = true;
+        }
     }
 }

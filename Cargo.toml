@@ -5,3 +5,4 @@ authors = ["Austin Lasher <austin@lasher.email>"]
 
 [dependencies]
 num = "0.2"
+ctrlc = { version = "3.0", features = ["termination"] }
