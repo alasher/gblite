@@ -309,13 +309,23 @@ impl CPU {
             },
             AluOp::Swap => {
                 op_a.wrapping_shl(8) | op_a.wrapping_shr(8)
+            },
+            AluOp::Test(off) {
+                self.was_zero = (op_a & (0x1 << off)) == 0;
+                op_a
+            },
+            AluOp::Set(off, val) {
+                let mask = 0x1 << off;
+                if val {
+                    op_a | mask
+                } else {
+                    op_a & (!mask)
+                }
             }
-            // TODO: Test(u8),
-            // TODO: Set(u8, bool)
             _ => panic!("Unimplemented ALU function!")
         };
 
-        if op != AluOp::Comp {
+        if op != AluOp::Comp && op != AluOp::Test(_) {
             self.was_zero = result == 0;
         }
 
@@ -352,6 +362,14 @@ impl CPU {
         self.arith_imm(op, Reg8::A, flags, operand_b);
     }
 
+    fn bitwise_hl_ptr(&mut self, op: AluOp, flags: FlagStatus) {
+        let addr = self.regs.get(Reg16::HL);
+        let operand_a = self.mem.get(addr);
+        let result = self.alu(op, operand_a, 0);
+        self.mem.set(result, addr);
+        self.evaluate_flags(flags);
+    }
+
     // Take an immediate u8 instead of a register.
     fn arith_imm(&mut self, op: AluOp, dst_reg: Reg8, flags: FlagStatus, val: u8) {
         let operand_a = self.regs.get(dst_reg);
@@ -369,12 +387,13 @@ impl CPU {
         self.evaluate_flags(flags);
     }
 
-    fn add_sp_signed(&mut self, flags: FlagStatus, num: i8) {
+    // Add SP and immediate signed, and store to given Reg16.
+    fn add_sp_signed(&mut self, flags: FlagStatus, dest: Reg16, offset: i8) {
         let sub = num < 0;
         let num = (num as u8) as u16;
         let sp_val = self.regs.get(Reg16::SP);
         let sp_val = self.add_u16(sp_val, num, sub);
-        self.regs.set(Reg16::SP, sp_val);
+        self.regs.set(dest, sp_val);
         self.evaluate_flags(flags);
     }
 
@@ -398,6 +417,39 @@ impl CPU {
                 }
             }
         }
+    }
+
+    fn decimal_adjust(&mut self, flags: FlagStatus) {
+        let lo = self.regs.get(Reg8::A);
+        let hi = lo.wrapping_shl(4);
+        let lo = lo & 0xF;
+        let mut adjust = 0;
+        if !self.regs.get_flag(Flag::N) {
+            if self.regs.get_flag(Flag::CY) || hi > 0x9 || lo > 0x9 {
+                adjust += 0x60;
+            } 
+            if self.regs.get_flag(Flag::H) || lo > 0x9 {
+                adjust += 0x6;
+            }
+        } else {
+            if self.regs.get_flag(Flag::CY) {
+                if self.regs.get_flag(Flag::H) {
+                    adjust += 0x9a;
+                } else {
+                    adjust += 0xa0;
+                }
+            } else if self.regs.get_flag(Flag::H) {
+                adjust += 0xfa;
+            }
+        }
+
+        self.arith_imm(AluOp::Add, Reg8::A, flags, adjust);
+    }
+
+    // Toggle the CY flag, used for CCF instruction
+    fn toggle_cy(&mut self) {
+        let val = !self.regs.get_flag(Flag::CY);
+        self.regs.set_flag(Flag::CY, val);
     }
 
     // For HALT, just exit the program for now. TODO: Add accurate HALT emulation here.
@@ -494,7 +546,7 @@ impl CPU {
             0x24 => self.regs.add(Reg8::H, 1),
             0x25 => self.regs.sub(Reg8::H, 1),
             0x26 => self.regs.set(Reg8::H, _operand8),
-            // 0x27
+            0x27 => self.decimal_adjust(lookup::get_flags(opcode)),
             0x28 => self.jump_relative_flag(Flag::Z, false, _operand8),
             0x29 => self.add_hl(lookup::get_flags(opcode), Reg16::HL),
             0x2a => self.ldd_special(false, true),
@@ -510,7 +562,7 @@ impl CPU {
             0x34 => self.hl_ptr_inc_dec(true),
             0x35 => self.hl_ptr_inc_dec(false),
             0x36 => self.mem.set(_operand8, self.regs.get(Reg16::HL)),
-            // 0x37
+            0x37 => self.regs.set(Flag::CY, true),
             0x38 => self.jump_relative_flag(Flag::CY, false, _operand8),
             0x39 => self.add_hl(lookup::get_flags(opcode), Reg16::SP),
             0x3a => self.ldd_special(false, false),
@@ -518,7 +570,7 @@ impl CPU {
             0x3c => self.regs.add(Reg8::A, 1),
             0x3d => self.regs.sub(Reg8::A, 1),
             0x3e => self.regs.set(Reg8::A, _operand8),
-            // 0x3f
+            0x3f => self.toggle_cy(),
 
             // [0x40, 0x7f] - Mostly copy instructions between registers and (HL).
             0x40 => self.regs.copy(Reg8::B, Reg8::B),
@@ -693,7 +745,7 @@ impl CPU {
             0xe5 => self.push(Reg16::HL),
             0xe6 => self.arith_imm(AluOp::And, Reg8::A, lookup::get_flags(opcode), _operand8),
             0xe7 => self.call(0x20),
-            0xe8 => self.add_sp_signed(lookup::get_flags(opcode), _operand8 as i8),
+            0xe8 => self.add_sp_signed(lookup::get_flags(opcode), Reg16::SP, _operand8 as i8),
             0xe9 => self.jump_hl_ptr(),
             0xea => self.mem.set(self.regs.get(Reg8::A), _operand16),
             0xeb => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
@@ -709,7 +761,7 @@ impl CPU {
             0xf5 => self.push(Reg16::AF),
             0xf6 => self.arith_imm(AluOp::Or, Reg8::A, lookup::get_flags(opcode), _operand8),
             0xf7 => self.call(0x30),
-            // 0xf8
+            0xf8 => self.add_sp_signed(lookup::get_flags(opcode), Reg16::HL, _operand8 as i8),
             0xf9 => self.regs.copy(Reg16::SP, Reg16::HL),
             0xfa => self.regs.set(Reg8::A, self.mem.get(_operand16)),
             0xfb => self.ir_enabled = true,
@@ -725,7 +777,7 @@ impl CPU {
             0xcb03 => self.arith_imm(AluOp::RotateLeft(true), Reg8::E, lookup::get_flags(opcode), 0),
             0xcb04 => self.arith_imm(AluOp::RotateLeft(true), Reg8::H, lookup::get_flags(opcode), 0),
             0xcb05 => self.arith_imm(AluOp::RotateLeft(true), Reg8::L, lookup::get_flags(opcode), 0),
-            0xcb06 => (),
+            0xcb06 => self.bitwise_hl_ptr(AluOp::RotateLeft(true), lookup::get_flags(opcode)),
             0xcb07 => self.arith_imm(AluOp::RotateLeft(true), Reg8::A, lookup::get_flags(opcode), 0),
             0xcb08 => self.arith_imm(AluOp::RotateRight(true), Reg8::B, lookup::get_flags(opcode), 0),
             0xcb09 => self.arith_imm(AluOp::RotateRight(true), Reg8::C, lookup::get_flags(opcode), 0),
@@ -733,7 +785,7 @@ impl CPU {
             0xcb0b => self.arith_imm(AluOp::RotateRight(true), Reg8::E, lookup::get_flags(opcode), 0),
             0xcb0c => self.arith_imm(AluOp::RotateRight(true), Reg8::H, lookup::get_flags(opcode), 0),
             0xcb0d => self.arith_imm(AluOp::RotateRight(true), Reg8::L, lookup::get_flags(opcode), 0),
-            0xcb0e => (),
+            0xcb0e => self.bitwise_hl_ptr(AluOp::RotateRight(true), lookup::get_flags(opcode)),
             0xcb0f => self.arith_imm(AluOp::RotateRight(true), Reg8::A, lookup::get_flags(opcode), 0),
             0xcb10 => self.arith_imm(AluOp::RotateLeft(false), Reg8::B, lookup::get_flags(opcode), 0),
             0xcb11 => self.arith_imm(AluOp::RotateLeft(false), Reg8::C, lookup::get_flags(opcode), 0),
@@ -741,7 +793,7 @@ impl CPU {
             0xcb13 => self.arith_imm(AluOp::RotateLeft(false), Reg8::E, lookup::get_flags(opcode), 0),
             0xcb14 => self.arith_imm(AluOp::RotateLeft(false), Reg8::H, lookup::get_flags(opcode), 0),
             0xcb15 => self.arith_imm(AluOp::RotateLeft(false), Reg8::L, lookup::get_flags(opcode), 0),
-            0xcb16 => (),
+            0xcb16 => self.bitwise_hl_ptr(AluOp::RotateLeft(false), lookup::get_flags(opcode)),
             0xcb17 => self.arith_imm(AluOp::RotateLeft(false), Reg8::A, lookup::get_flags(opcode), 0),
             0xcb18 => self.arith_imm(AluOp::RotateRight(false), Reg8::B, lookup::get_flags(opcode), 0),
             0xcb19 => self.arith_imm(AluOp::RotateRight(false), Reg8::C, lookup::get_flags(opcode), 0),
@@ -749,7 +801,7 @@ impl CPU {
             0xcb1b => self.arith_imm(AluOp::RotateRight(false), Reg8::E, lookup::get_flags(opcode), 0),
             0xcb1c => self.arith_imm(AluOp::RotateRight(false), Reg8::H, lookup::get_flags(opcode), 0),
             0xcb1d => self.arith_imm(AluOp::RotateRight(false), Reg8::L, lookup::get_flags(opcode), 0),
-            0xcb1e => (),
+            0xcb1e => self.bitwise_hl_ptr(AluOp::RotateRight(false), lookup::get_flags(opcode)),
             0xcb1f => self.arith_imm(AluOp::RotateRight(false), Reg8::A, lookup::get_flags(opcode), 0),
             0xcb20 => self.arith_imm(AluOp::ShiftLeft, Reg8::B, lookup::get_flags(opcode), 0),
             0xcb21 => self.arith_imm(AluOp::ShiftLeft, Reg8::C, lookup::get_flags(opcode), 0),
@@ -757,7 +809,7 @@ impl CPU {
             0xcb23 => self.arith_imm(AluOp::ShiftLeft, Reg8::E, lookup::get_flags(opcode), 0),
             0xcb24 => self.arith_imm(AluOp::ShiftLeft, Reg8::H, lookup::get_flags(opcode), 0),
             0xcb25 => self.arith_imm(AluOp::ShiftLeft, Reg8::L, lookup::get_flags(opcode), 0),
-            0xcb26 => (),
+            0xcb26 => self.bitwise_hl_ptr(AluOp::ShiftLeft, lookup::get_flags(opcode)),
             0xcb27 => self.arith_imm(AluOp::ShiftLeft, Reg8::A, lookup::get_flags(opcode), 0),
             0xcb28 => self.arith_imm(AluOp::ShiftRight(true), Reg8::B, lookup::get_flags(opcode), 0),
             0xcb29 => self.arith_imm(AluOp::ShiftRight(true), Reg8::C, lookup::get_flags(opcode), 0),
@@ -765,7 +817,7 @@ impl CPU {
             0xcb2b => self.arith_imm(AluOp::ShiftRight(true), Reg8::E, lookup::get_flags(opcode), 0),
             0xcb2c => self.arith_imm(AluOp::ShiftRight(true), Reg8::H, lookup::get_flags(opcode), 0),
             0xcb2d => self.arith_imm(AluOp::ShiftRight(true), Reg8::L, lookup::get_flags(opcode), 0),
-            0xcb2e => (),
+            0xcb2e => self.bitwise_hl_ptr(AluOp::ShiftRight(true), lookup::get_flags(opcode)),
             0xcb2f => self.arith_imm(AluOp::ShiftRight(true), Reg8::A, lookup::get_flags(opcode), 0),
             0xcb30 => self.arith_imm(AluOp::Swap, Reg8::B, lookup::get_flags(opcode), 0),
             0xcb31 => self.arith_imm(AluOp::Swap, Reg8::C, lookup::get_flags(opcode), 0),
@@ -773,7 +825,7 @@ impl CPU {
             0xcb33 => self.arith_imm(AluOp::Swap, Reg8::E, lookup::get_flags(opcode), 0),
             0xcb34 => self.arith_imm(AluOp::Swap, Reg8::H, lookup::get_flags(opcode), 0),
             0xcb35 => self.arith_imm(AluOp::Swap, Reg8::L, lookup::get_flags(opcode), 0),
-            0xcb36 => (),
+            0xcb36 => self.bitwise_hl_ptr(AluOp::Swap, lookup::get_flags(opcode)),
             0xcb37 => self.arith_imm(AluOp::Swap, Reg8::A, lookup::get_flags(opcode), 0),
             0xcb38 => self.arith_imm(AluOp::ShiftRight(false), Reg8::B, lookup::get_flags(opcode), 0),
             0xcb39 => self.arith_imm(AluOp::ShiftRight(false), Reg8::C, lookup::get_flags(opcode), 0),
@@ -781,12 +833,207 @@ impl CPU {
             0xcb3b => self.arith_imm(AluOp::ShiftRight(false), Reg8::E, lookup::get_flags(opcode), 0),
             0xcb3c => self.arith_imm(AluOp::ShiftRight(false), Reg8::H, lookup::get_flags(opcode), 0),
             0xcb3d => self.arith_imm(AluOp::ShiftRight(false), Reg8::L, lookup::get_flags(opcode), 0),
-            0xcb3e => (),
+            0xcb3e => self.bitwise_hl_ptr(AluOp::ShiftRight(false), lookup::get_flags(opcode)),
             0xcb3f => self.arith_imm(AluOp::ShiftRight(false), Reg8::A, lookup::get_flags(opcode), 0),
 
             // [0xcb40, 0xcb7f] - Bit test, push value to Z flag
+            0xcb40 => self.arith_imm(AluOp::Test(0), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb41 => self.arith_imm(AluOp::Test(0), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb42 => self.arith_imm(AluOp::Test(0), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb43 => self.arith_imm(AluOp::Test(0), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb44 => self.arith_imm(AluOp::Test(0), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb45 => self.arith_imm(AluOp::Test(0), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb46 => self.bitwise_hl_ptr(AluOp::Test(0), lookup::get_flags(opcode)),
+            0xcb47 => self.arith_imm(AluOp::Test(0), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb48 => self.arith_imm(AluOp::Test(1), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb49 => self.arith_imm(AluOp::Test(1), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb4a => self.arith_imm(AluOp::Test(1), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb4b => self.arith_imm(AluOp::Test(1), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb4c => self.arith_imm(AluOp::Test(1), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb4d => self.arith_imm(AluOp::Test(1), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb4e => self.bitwise_hl_ptr(AluOp::Test(1), lookup::get_flags(opcode)),
+            0xcb4f => self.arith_imm(AluOp::Test(1), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb50 => self.arith_imm(AluOp::Test(2), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb51 => self.arith_imm(AluOp::Test(2), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb52 => self.arith_imm(AluOp::Test(2), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb53 => self.arith_imm(AluOp::Test(2), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb54 => self.arith_imm(AluOp::Test(2), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb55 => self.arith_imm(AluOp::Test(2), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb56 => self.bitwise_hl_ptr(AluOp::Test(2), lookup::get_flags(opcode)),
+            0xcb57 => self.arith_imm(AluOp::Test(2), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb58 => self.arith_imm(AluOp::Test(3), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb59 => self.arith_imm(AluOp::Test(3), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb5a => self.arith_imm(AluOp::Test(3), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb5b => self.arith_imm(AluOp::Test(3), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb5c => self.arith_imm(AluOp::Test(3), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb5d => self.arith_imm(AluOp::Test(3), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb5e => self.bitwise_hl_ptr(AluOp::Test(3), lookup::get_flags(opcode)),
+            0xcb5f => self.arith_imm(AluOp::Test(3), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb60 => self.arith_imm(AluOp::Test(4), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb61 => self.arith_imm(AluOp::Test(4), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb62 => self.arith_imm(AluOp::Test(4), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb63 => self.arith_imm(AluOp::Test(4), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb64 => self.arith_imm(AluOp::Test(4), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb65 => self.arith_imm(AluOp::Test(4), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb66 => self.bitwise_hl_ptr(AluOp::Test(4), lookup::get_flags(opcode)),
+            0xcb67 => self.arith_imm(AluOp::Test(4), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb68 => self.arith_imm(AluOp::Test(5), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb69 => self.arith_imm(AluOp::Test(5), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb6a => self.arith_imm(AluOp::Test(5), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb6b => self.arith_imm(AluOp::Test(5), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb6c => self.arith_imm(AluOp::Test(5), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb6d => self.arith_imm(AluOp::Test(5), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb6e => self.bitwise_hl_ptr(AluOp::Test(5), lookup::get_flags(opcode)),
+            0xcb6f => self.arith_imm(AluOp::Test(5), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb70 => self.arith_imm(AluOp::Test(6), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb71 => self.arith_imm(AluOp::Test(6), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb72 => self.arith_imm(AluOp::Test(6), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb73 => self.arith_imm(AluOp::Test(6), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb74 => self.arith_imm(AluOp::Test(6), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb75 => self.arith_imm(AluOp::Test(6), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb76 => self.bitwise_hl_ptr(AluOp::Test(6), lookup::get_flags(opcode)),
+            0xcb77 => self.arith_imm(AluOp::Test(6), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb78 => self.arith_imm(AluOp::Test(7), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb79 => self.arith_imm(AluOp::Test(7), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb7a => self.arith_imm(AluOp::Test(7), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb7b => self.arith_imm(AluOp::Test(7), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb7c => self.arith_imm(AluOp::Test(7), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb7d => self.arith_imm(AluOp::Test(7), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb7e => self.bitwise_hl_ptr(AluOp::Test(7), lookup::get_flags(opcode)),
+            0xcb7f => self.arith_imm(AluOp::Test(7), Reg8::A, lookup::get_flags(opcode), 0),
+
             // [0xcb80, 0xcbb9] - Reset bit to 0
+            0xcb80 => self.arith_imm(AluOp::Set(0, false), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb81 => self.arith_imm(AluOp::Set(0, false), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb82 => self.arith_imm(AluOp::Set(0, false), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb83 => self.arith_imm(AluOp::Set(0, false), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb84 => self.arith_imm(AluOp::Set(0, false), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb85 => self.arith_imm(AluOp::Set(0, false), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb86 => self.bitwise_hl_ptr(AluOp::Set(0, false), lookup::get_flags(opcode)),
+            0xcb87 => self.arith_imm(AluOp::Set(0, false), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb88 => self.arith_imm(AluOp::Set(1, false), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb89 => self.arith_imm(AluOp::Set(1, false), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb8a => self.arith_imm(AluOp::Set(1, false), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb8b => self.arith_imm(AluOp::Set(1, false), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb8c => self.arith_imm(AluOp::Set(1, false), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb8d => self.arith_imm(AluOp::Set(1, false), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb8e => self.bitwise_hl_ptr(AluOp::Set(1, false), lookup::get_flags(opcode)),
+            0xcb8f => self.arith_imm(AluOp::Set(1, false), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb90 => self.arith_imm(AluOp::Set(2, false), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb91 => self.arith_imm(AluOp::Set(2, false), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb92 => self.arith_imm(AluOp::Set(2, false), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb93 => self.arith_imm(AluOp::Set(2, false), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb94 => self.arith_imm(AluOp::Set(2, false), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb95 => self.arith_imm(AluOp::Set(2, false), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb96 => self.bitwise_hl_ptr(AluOp::Set(2, false), lookup::get_flags(opcode)),
+            0xcb97 => self.arith_imm(AluOp::Set(2, false), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcb98 => self.arith_imm(AluOp::Set(3, false), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcb99 => self.arith_imm(AluOp::Set(3, false), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcb9a => self.arith_imm(AluOp::Set(3, false), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcb9b => self.arith_imm(AluOp::Set(3, false), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcb9c => self.arith_imm(AluOp::Set(3, false), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcb9d => self.arith_imm(AluOp::Set(3, false), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcb9e => self.bitwise_hl_ptr(AluOp::Set(3, false), lookup::get_flags(opcode)),
+            0xcb9f => self.arith_imm(AluOp::Set(3, false), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcba0 => self.arith_imm(AluOp::Set(4, false), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcba1 => self.arith_imm(AluOp::Set(4, false), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcba2 => self.arith_imm(AluOp::Set(4, false), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcba3 => self.arith_imm(AluOp::Set(4, false), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcba4 => self.arith_imm(AluOp::Set(4, false), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcba5 => self.arith_imm(AluOp::Set(4, false), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcba6 => self.bitwise_hl_ptr(AluOp::Set(4, false), lookup::get_flags(opcode)),
+            0xcba7 => self.arith_imm(AluOp::Set(4, false), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcba8 => self.arith_imm(AluOp::Set(5, false), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcba9 => self.arith_imm(AluOp::Set(5, false), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcbaa => self.arith_imm(AluOp::Set(5, false), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcbab => self.arith_imm(AluOp::Set(5, false), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcbac => self.arith_imm(AluOp::Set(5, false), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcbad => self.arith_imm(AluOp::Set(5, false), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcbae => self.bitwise_hl_ptr(AluOp::Set(5, false), lookup::get_flags(opcode)),
+            0xcbaf => self.arith_imm(AluOp::Set(5, false), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcbb0 => self.arith_imm(AluOp::Set(6, false), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcbb1 => self.arith_imm(AluOp::Set(6, false), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcbb2 => self.arith_imm(AluOp::Set(6, false), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcbb3 => self.arith_imm(AluOp::Set(6, false), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcbb4 => self.arith_imm(AluOp::Set(6, false), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcbb5 => self.arith_imm(AluOp::Set(6, false), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcbb6 => self.bitwise_hl_ptr(AluOp::Set(6, false), lookup::get_flags(opcode)),
+            0xcbb7 => self.arith_imm(AluOp::Set(6, false), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcbb8 => self.arith_imm(AluOp::Set(7, false), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcbb9 => self.arith_imm(AluOp::Set(7, false), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcbba => self.arith_imm(AluOp::Set(7, false), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcbbb => self.arith_imm(AluOp::Set(7, false), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcbbc => self.arith_imm(AluOp::Set(7, false), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcbbd => self.arith_imm(AluOp::Set(7, false), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcbbe => self.bitwise_hl_ptr(AluOp::Set(7, false), lookup::get_flags(opcode)),
+            0xcbbf => self.arith_imm(AluOp::Set(7, false), Reg8::A, lookup::get_flags(opcode), 0),
+
             // [0xcbc0, 0xcbf9] - Set bit to 1
+            0xcbc0 => self.arith_imm(AluOp::Set(0, true), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcbc1 => self.arith_imm(AluOp::Set(0, true), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcbc2 => self.arith_imm(AluOp::Set(0, true), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcbc3 => self.arith_imm(AluOp::Set(0, true), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcbc4 => self.arith_imm(AluOp::Set(0, true), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcbc5 => self.arith_imm(AluOp::Set(0, true), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcbc6 => self.bitwise_hl_ptr(AluOp::Set(0, true), lookup::get_flags(opcode)),
+            0xcbc7 => self.arith_imm(AluOp::Set(0, true), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcbc8 => self.arith_imm(AluOp::Set(1, true), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcbc9 => self.arith_imm(AluOp::Set(1, true), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcbca => self.arith_imm(AluOp::Set(1, true), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcbcb => self.arith_imm(AluOp::Set(1, true), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcbcc => self.arith_imm(AluOp::Set(1, true), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcbcd => self.arith_imm(AluOp::Set(1, true), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcbce => self.bitwise_hl_ptr(AluOp::Set(1, true), lookup::get_flags(opcode)),
+            0xcbcf => self.arith_imm(AluOp::Set(1, true), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcbd0 => self.arith_imm(AluOp::Set(2, true), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcbd1 => self.arith_imm(AluOp::Set(2, true), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcbd2 => self.arith_imm(AluOp::Set(2, true), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcbd3 => self.arith_imm(AluOp::Set(2, true), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcbd4 => self.arith_imm(AluOp::Set(2, true), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcbd5 => self.arith_imm(AluOp::Set(2, true), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcbd6 => self.bitwise_hl_ptr(AluOp::Set(2, true), lookup::get_flags(opcode)),
+            0xcbd7 => self.arith_imm(AluOp::Set(2, true), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcbd8 => self.arith_imm(AluOp::Set(3, true), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcbd9 => self.arith_imm(AluOp::Set(3, true), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcbda => self.arith_imm(AluOp::Set(3, true), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcbdb => self.arith_imm(AluOp::Set(3, true), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcbdc => self.arith_imm(AluOp::Set(3, true), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcbdd => self.arith_imm(AluOp::Set(3, true), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcbde => self.bitwise_hl_ptr(AluOp::Set(3, true), lookup::get_flags(opcode)),
+            0xcbdf => self.arith_imm(AluOp::Set(3, true), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcbe0 => self.arith_imm(AluOp::Set(4, true), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcbe1 => self.arith_imm(AluOp::Set(4, true), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcbe2 => self.arith_imm(AluOp::Set(4, true), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcbe3 => self.arith_imm(AluOp::Set(4, true), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcbe4 => self.arith_imm(AluOp::Set(4, true), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcbe5 => self.arith_imm(AluOp::Set(4, true), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcbe6 => self.bitwise_hl_ptr(AluOp::Set(4, true), lookup::get_flags(opcode)),
+            0xcbe7 => self.arith_imm(AluOp::Set(4, true), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcbe8 => self.arith_imm(AluOp::Set(5, true), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcbe9 => self.arith_imm(AluOp::Set(5, true), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcbea => self.arith_imm(AluOp::Set(5, true), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcbeb => self.arith_imm(AluOp::Set(5, true), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcbec => self.arith_imm(AluOp::Set(5, true), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcbed => self.arith_imm(AluOp::Set(5, true), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcbee => self.bitwise_hl_ptr(AluOp::Set(5, true), lookup::get_flags(opcode)),
+            0xcbef => self.arith_imm(AluOp::Set(5, true), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcbf0 => self.arith_imm(AluOp::Set(6, true), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcbf1 => self.arith_imm(AluOp::Set(6, true), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcbf2 => self.arith_imm(AluOp::Set(6, true), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcbf3 => self.arith_imm(AluOp::Set(6, true), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcbf4 => self.arith_imm(AluOp::Set(6, true), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcbf5 => self.arith_imm(AluOp::Set(6, true), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcbf6 => self.bitwise_hl_ptr(AluOp::Set(6, true), lookup::get_flags(opcode)),
+            0xcbf7 => self.arith_imm(AluOp::Set(6, true), Reg8::A, lookup::get_flags(opcode), 0),
+            0xcbf8 => self.arith_imm(AluOp::Set(7, true), Reg8::B, lookup::get_flags(opcode), 0),
+            0xcbf9 => self.arith_imm(AluOp::Set(7, true), Reg8::C, lookup::get_flags(opcode), 0),
+            0xcbfa => self.arith_imm(AluOp::Set(7, true), Reg8::D, lookup::get_flags(opcode), 0),
+            0xcbfb => self.arith_imm(AluOp::Set(7, true), Reg8::E, lookup::get_flags(opcode), 0),
+            0xcbfc => self.arith_imm(AluOp::Set(7, true), Reg8::H, lookup::get_flags(opcode), 0),
+            0xcbfd => self.arith_imm(AluOp::Set(7, true), Reg8::L, lookup::get_flags(opcode), 0),
+            0xcbfe => self.bitwise_hl_ptr(AluOp::Set(7, true), lookup::get_flags(opcode)),
+            0xcbff => self.arith_imm(AluOp::Set(7, true), Reg8::A, lookup::get_flags(opcode), 0),
+
             _ => {
                 println!("Fatal error: undefined instruction! Opcode: 0x{:02x}", opcode);
                 self.regs.print_registers();
