@@ -1,11 +1,5 @@
 #![allow(dead_code)]
 
-/*
-TODO: Here we should handle rom-bank switching. When we specify an address between [0x4000, 0x8000)
-      we need to return the data in the appropriate ROM bank. How do we know which one that is?
-      I'm not sure yet. :)
-*/
-
 use std::fs;
 
 pub struct Memory {
@@ -13,13 +7,6 @@ pub struct Memory {
     rom:  Vec<u8>,
     bios: Vec<u8>
 }
-
-// TODO: Maybe implement an enum for our memory source?
-// That way we can implement a lookup function that inputs an address and
-// identifies which bank we need to load from. Ie. it would check if Boot ROM is
-// enabled for < 0x100, or return the appropriate cartridge ID. Then we could
-// implement our getter and setter functions to use this, that way we don't have
-// to duplicate this identification process.
 
 impl Memory {
     pub fn new(size: usize) -> Memory {
@@ -35,11 +22,11 @@ impl Memory {
     pub fn get(&self, addr: u16) -> u8 {
         let a = addr as usize;
         if a < 0x100 {
-          if self.bootrom_enabled() {
-              self.bios[a]
-          } else {
-              self.rom[a]
-          }
+            if self.bootrom_enabled() {
+                self.bios[a]
+            } else {
+                self.rom[a]
+            }
         } else if a < 0x4000 {
             self.rom[a]
         } else if a < 0x8000 {
@@ -58,26 +45,26 @@ impl Memory {
     }
 
     pub fn load_rom_file(&mut self, file_name : &str) {
-       self.rom = fs::read(file_name).unwrap_or(vec![])
+        self.rom = fs::read(file_name).unwrap_or(vec![])
     }
 
     pub fn load_bios_file(&mut self, file_name : &str) {
-       self.bios = fs::read(file_name).unwrap_or(vec![])
+        self.bios = fs::read(file_name).unwrap_or(vec![])
     }
 
     fn default_bios() -> Vec<u8> {
-      let mut bios = vec![0x0; 0x100];
-      bios[0x01] = 0xC3; // Jump to the end of the boot ROM. (JP a16)
-      bios[0x02] = 0xFC;
-      bios[0xFC] = 0x3E; // Set A so we can use it to set Boot ROM. (LD A,d8)
-      bios[0xFD] = 0x01;
-      bios[0xFE] = 0xE0; // Disable Boot ROM with (0xFF50) = 1. (LDH (a8),A)
-      bios[0xFF] = 0x50;
-      bios
+        let mut bios = vec![0x0; 0x100];
+        bios[0x01] = 0xC3; // Jump to the end of the boot ROM. (JP a16)
+        bios[0x02] = 0xFC;
+        bios[0xFC] = 0x3E; // Set A so we can use it to set Boot ROM. (LD A,d8)
+        bios[0xFD] = 0x01;
+        bios[0xFE] = 0xE0; // Disable Boot ROM with (0xFF50) = 1. (LDH (a8),A)
+        bios[0xFF] = 0x50;
+        bios
     }
 
     fn bootrom_enabled(&self) -> bool {
-      self.mem[0xFF50] == 0
+        self.mem[0xFF50] == 0
     }
 
     // For debug use only: do a hex dump of the contents of our ROM cartridge.

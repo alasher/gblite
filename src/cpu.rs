@@ -188,14 +188,14 @@ impl CPU {
 
     // Jump to the given address if Z or CY match what we expect
     fn jump_flag(&mut self, flag: Flag, if_unset: bool, addr: u16) {
-       let flag_val = match flag {
-           Flag::Z | Flag::CY => self.regs.get_flag(flag),
-           _ => panic!("Can only call jump_flag on Z and CY flags.")
-       };
+        let flag_val = match flag {
+            Flag::Z | Flag::CY => self.regs.get_flag(flag),
+            _ => panic!("Can only call jump_flag on Z and CY flags.")
+        };
 
-       if flag_val ^ if_unset {
-           self.regs.set(Reg16::PC, addr);
-       }
+        if flag_val ^ if_unset {
+            self.regs.set(Reg16::PC, addr);
+        }
     }
 
     fn jump_hl_ptr(&mut self) {
@@ -206,14 +206,14 @@ impl CPU {
 
     // Jump only if flag is set (or unset)
     fn jump_relative_flag(&mut self, flag: Flag, if_unset: bool, offset: u8) {
-       let flag_val = match flag {
-           Flag::Z | Flag::CY => self.regs.get_flag(flag),
-           _ => panic!("Can only call jump_relative_flag on Z and CY flags.")
-       };
+        let flag_val = match flag {
+            Flag::Z | Flag::CY => self.regs.get_flag(flag),
+            _ => panic!("Can only call jump_relative_flag on Z and CY flags.")
+        };
 
-       if flag_val ^ if_unset {
-           self.jump_relative(offset);
-       }
+        if flag_val ^ if_unset {
+            self.jump_relative(offset);
+        }
     }
 
     // Jump relative to current PC, where offset is twos-complement 8-bit signed int.
