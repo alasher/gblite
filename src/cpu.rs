@@ -310,11 +310,11 @@ impl CPU {
             AluOp::Swap => {
                 op_a.wrapping_shl(8) | op_a.wrapping_shr(8)
             },
-            AluOp::Test(off) {
+            AluOp::Test(off) => {
                 self.was_zero = (op_a & (0x1 << off)) == 0;
                 op_a
             },
-            AluOp::Set(off, val) {
+            AluOp::Set(off, val) => {
                 let mask = 0x1 << off;
                 if val {
                     op_a | mask
@@ -322,12 +322,12 @@ impl CPU {
                     op_a & (!mask)
                 }
             }
-            _ => panic!("Unimplemented ALU function!")
         };
 
-        if op != AluOp::Comp && op != AluOp::Test(_) {
-            self.was_zero = result == 0;
-        }
+        self.was_zero = match op {
+            AluOp::Comp | AluOp::Test(_) => self.was_zero,
+            _ => result == 0
+        };
 
         if cfg!(debug_assertions) {
             println!("Result of ALU instruction {} with input {}, {} => {}. Z: {}, H: {}, CY: {}",
@@ -389,10 +389,10 @@ impl CPU {
 
     // Add SP and immediate signed, and store to given Reg16.
     fn add_sp_signed(&mut self, flags: FlagStatus, dest: Reg16, offset: i8) {
-        let sub = num < 0;
-        let num = (num as u8) as u16;
+        let sub = offset < 0;
+        let offset_u = (offset as u8) as u16;
         let sp_val = self.regs.get(Reg16::SP);
-        let sp_val = self.add_u16(sp_val, num, sub);
+        let sp_val = self.add_u16(sp_val, offset_u, sub);
         self.regs.set(dest, sp_val);
         self.evaluate_flags(flags);
     }
@@ -443,7 +443,7 @@ impl CPU {
             }
         }
 
-        self.arith_imm(AluOp::Add, Reg8::A, flags, adjust);
+        self.arith_imm(AluOp::Add(false), Reg8::A, flags, adjust);
     }
 
     // Toggle the CY flag, used for CCF instruction
@@ -562,7 +562,7 @@ impl CPU {
             0x34 => self.hl_ptr_inc_dec(true),
             0x35 => self.hl_ptr_inc_dec(false),
             0x36 => self.mem.set(_operand8, self.regs.get(Reg16::HL)),
-            0x37 => self.regs.set(Flag::CY, true),
+            0x37 => self.regs.set_flag(Flag::CY, true),
             0x38 => self.jump_relative_flag(Flag::CY, false, _operand8),
             0x39 => self.add_hl(lookup::get_flags(opcode), Reg16::SP),
             0x3a => self.ldd_special(false, false),
