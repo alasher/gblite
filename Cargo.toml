@@ -1,6 +1,6 @@
 [package]
 name = "gblite"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Austin Lasher <austin@lasher.email>"]
 
 [dependencies]
