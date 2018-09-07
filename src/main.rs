@@ -1,8 +1,11 @@
 extern crate num;
 extern crate ctrlc;
+extern crate sdl2;
 
 mod registers;
 mod cpu;
+mod lcd;
+mod window;
 mod memory;
 mod util;
 mod lookup;
@@ -34,12 +37,15 @@ fn main() {
     let mut mem = memory::Memory::new(0x10000);
     mem.load_rom_file(&fname);
 
+    let mut lcd = lcd::LCD::new();
+    lcd.start();
+
     let mut z80 = cpu::CPU::new(mem);
     let mut cnt = 0;
 
     // Now, run instructions *literally* forever!
     loop {
-        if !running.load(Ordering::SeqCst) { 
+        if !running.load(Ordering::SeqCst) {
             println!("Received Ctrl+C signal, exiting!");
             break;
         }
