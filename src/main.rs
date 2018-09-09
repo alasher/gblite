@@ -1,6 +1,7 @@
 extern crate num;
 extern crate ctrlc;
 extern crate sdl2;
+extern crate gl;
 
 mod registers;
 mod cpu;
@@ -50,6 +51,7 @@ fn main() {
             break;
         }
 
+        lcd.render();
         if !z80.process() { break; }
         cnt += 1;
 

@@ -22,6 +22,11 @@ impl LCD {
         self.win.open();
     }
 
+    pub fn render(&mut self) {
+        // Set LY = 0
+        self.win.draw();
+    }
+
     pub fn stop(&mut self) {
         self.running = false;
     }

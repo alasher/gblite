@@ -6,4 +6,5 @@ authors = ["Austin Lasher <austin@lasher.email>"]
 [dependencies]
 num = "0.2"
 ctrlc = { version = "3.0", features = ["termination"] }
-sdl2 = "0.31.0"
+sdl2 = { version = "0.31.0", features = ["bundled", "static-link"] }
+gl = "0.10.0"
