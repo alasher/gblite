@@ -51,6 +51,11 @@ fn main() {
             break;
         }
 
+        if !lcd.running {
+            println!("Closed LCD window!");
+            break;
+        }
+
         lcd.render();
         if !z80.process() { break; }
         cnt += 1;

@@ -4,7 +4,8 @@
 use window::Window;
 
 pub struct LCD {
-    running: bool,
+    pub running: bool, // TODO: Right now "running" corresponds to the program status, but on a real game boy
+                       //       the LCD can be disabled while the CPU is active.
     win: Window
 }
 
@@ -23,8 +24,15 @@ impl LCD {
     }
 
     pub fn render(&mut self) {
-        // Set LY = 0
-        self.win.draw();
+        if self.running {
+            self.win.get_events();
+            if self.win.is_open() {
+                // Set LY = 0
+                self.win.draw();
+            } else {
+                self.stop();
+            }
+        }
     }
 
     pub fn stop(&mut self) {

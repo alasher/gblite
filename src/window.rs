@@ -1,13 +1,14 @@
 use sdl2;
 use sdl2::video;
-use gl;
-use std;
+use sdl2::render;
+use sdl2::pixels::Color;
+use sdl2::event::Event;
+use sdl2::keyboard::Keycode;
 
 pub struct Window {
     sdl: sdl2::Sdl,
     video: sdl2::VideoSubsystem,
-    window: Option<video::Window>,
-    context: Option<video::GLContext>
+    canvas: Option<render::Canvas<video::Window>>,
 }
 
 impl Window {
@@ -17,36 +18,46 @@ impl Window {
         Window {
             sdl: sdl,
             video: video,
-            window: None,
-            context: None
+            canvas: None
         }
     }
 
     pub fn open(&mut self) {
         let win = self.video.window("gblite", 160, 144).
                            resizable().
-                           opengl().
                            build().
                            unwrap();
-        let ctx = win.gl_create_context().unwrap();
+        let mut can = win.into_canvas().build().unwrap();
 
-        gl::load_with(|s| self.video.gl_get_proc_address(s) as *const std::os::raw::c_void);
+        can.set_draw_color(Color::RGB(0, 255, 255));
 
-        unsafe {
-            gl::ClearColor(1.0, 1.0, 1.0, 1.0);
-        }
-
-        self.window = Some(win);
-        self.context = Some(ctx);
+        self.canvas = Some(can);
     }
 
     pub fn draw(&mut self) {
-        unsafe {
-            gl::Clear(gl::COLOR_BUFFER_BIT);
+        if let Some(c) = self.canvas.as_mut() {
+            (*c).clear();
+            (*c).present();
         }
-        match &self.window {
-            Some(win) => win.gl_swap_window(),
-            None => panic!("No window to draw in!")
+    }
+
+    pub fn get_events(&mut self) {
+        let mut events = self.sdl.event_pump().unwrap();
+        for event in events.poll_iter() {
+            match event {
+                Event::Quit {..} | Event::KeyDown { keycode: Some(Keycode::Escape), .. } => {
+                    self.close();
+                },
+                _ => ()
+            }
         }
+    }
+
+    pub fn is_open(&self) -> bool {
+        self.canvas.is_some()
+    }
+
+    pub fn close(&mut self) {
+        self.canvas = None;
     }
 }
