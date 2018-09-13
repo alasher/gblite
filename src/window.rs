@@ -7,38 +7,32 @@ use sdl2::keyboard::Keycode;
 
 pub struct Window {
     sdl: sdl2::Sdl,
-    video: sdl2::VideoSubsystem,
-    canvas: Option<render::Canvas<video::Window>>,
+    canvas: render::Canvas<video::Window>,
+    open: bool
 }
 
 impl Window {
-    pub fn new() -> Self {
+    pub fn new(w: u32, h: u32) -> Self {
         let sdl = sdl2::init().unwrap();
         let video = sdl.video().unwrap();
-        Window {
-            sdl: sdl,
-            video: video,
-            canvas: None
-        }
-    }
-
-    pub fn open(&mut self) {
-        let win = self.video.window("gblite", 160, 144).
+        let win = video.window("gblite", w, h).
                            resizable().
                            build().
                            unwrap();
-        let mut can = win.into_canvas().build().unwrap();
 
+        let mut can = win.into_canvas().build().unwrap();
         can.set_draw_color(Color::RGB(0, 255, 255));
 
-        self.canvas = Some(can);
+        Window {
+            sdl: sdl,
+            canvas: can,
+            open: true
+        }
     }
 
-    pub fn draw(&mut self) {
-        if let Some(c) = self.canvas.as_mut() {
-            (*c).clear();
-            (*c).present();
-        }
+    pub fn draw(&mut self, pixels: &[u8]) {
+        self.canvas.clear();
+        self.canvas.present();
     }
 
     pub fn get_events(&mut self) {
@@ -54,10 +48,10 @@ impl Window {
     }
 
     pub fn is_open(&self) -> bool {
-        self.canvas.is_some()
+        self.open
     }
 
     pub fn close(&mut self) {
-        self.canvas = None;
+        self.open = false;
     }
 }

@@ -39,8 +39,6 @@ fn main() {
     mem.load_rom_file(&fname);
 
     let mut lcd = lcd::LCD::new();
-    lcd.start();
-
     let mut z80 = cpu::CPU::new(mem);
     let mut cnt = 0;
 
@@ -61,10 +59,12 @@ fn main() {
         cnt += 1;
 
         if cfg!(debug_assertions) {
-            thread::sleep(time::Duration::from_millis(1));
+            //thread::sleep(time::Duration::from_millis(1));
             if (cnt % 1000) == 0 {
                 println!("Instruction count: {}", cnt);
             }
         }
     }
+
+    thread::sleep(time::Duration::from_millis(100));
 }
