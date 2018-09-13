@@ -1,13 +1,16 @@
 use sdl2;
 use sdl2::video;
 use sdl2::render;
-use sdl2::pixels::Color;
 use sdl2::event::Event;
 use sdl2::keyboard::Keycode;
+use sdl2::pixels::Color;
+use sdl2::pixels::PixelFormatEnum;
 
 pub struct Window {
     sdl: sdl2::Sdl,
     canvas: render::Canvas<video::Window>,
+    width: u32,
+    height: u32,
     open: bool
 }
 
@@ -26,12 +29,20 @@ impl Window {
         Window {
             sdl: sdl,
             canvas: can,
+            width: w,
+            height: h,
             open: true
         }
     }
 
     pub fn draw(&mut self, pixels: &[u8]) {
+        let tex_creator = self.canvas.texture_creator();
+        let mut tex = tex_creator.create_texture_streaming(
+            PixelFormatEnum::RGB24, self.width, self.height).unwrap();
+        tex.update(None, &pixels, 3 * self.width as usize).unwrap();
+
         self.canvas.clear();
+        self.canvas.copy(&tex, None, None).unwrap();
         self.canvas.present();
     }
 
