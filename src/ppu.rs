@@ -1,21 +1,21 @@
-// LCD abstracts the details of the PPU from the CPU. It's different from the Window struct because
+// PPU abstracts the details of the PPU from the CPU. It's different from the Window struct because
 // the window abstracts platform-specific details related to operating the window.
 
 use window::Window;
 
-pub struct LCD {
+pub struct PPU {
     pub running: bool, // TODO: Right now "running" corresponds to the program status, but on a real game boy
-                       //       the LCD can be disabled while the CPU is active.
+                       //       the PPU can be disabled while the CPU is active.
     width: u32,
     height: u32,
     win: Window
 }
 
-impl LCD {
+impl PPU {
     pub fn new() -> Self {
         let (w, h) = (160, 144);
         let win = Window::new(w, h);
-        LCD {
+        PPU {
             running: true,
             width: w,
             height: h,

@@ -5,7 +5,7 @@ extern crate gl;
 
 mod registers;
 mod cpu;
-mod lcd;
+mod ppu;
 mod window;
 mod memory;
 mod util;
@@ -38,7 +38,7 @@ fn main() {
     let mut mem = memory::Memory::new(0x10000);
     mem.load_rom_file(&fname);
 
-    let mut lcd = lcd::LCD::new();
+    let mut lcd = ppu::PPU::new();
     let mut z80 = cpu::CPU::new(mem);
     let mut cnt = 0;
 
@@ -50,7 +50,7 @@ fn main() {
         }
 
         if !lcd.running {
-            println!("Closed LCD window!");
+            println!("Closed PPU window!");
             break;
         }
 
