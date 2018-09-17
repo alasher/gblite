@@ -49,7 +49,7 @@ fn main() {
             break;
         }
 
-        if !lcd.running {
+        if !lcd.is_running() {
             println!("Closed PPU window!");
             break;
         }

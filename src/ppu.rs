@@ -3,11 +3,21 @@
 
 use window::Window;
 
+#[derive(Copy, Clone, PartialEq)]
+enum PPUState {
+    Off,
+    HBlank,
+    VBlank,
+    OAMSearch,
+    Draw
+}
+
 pub struct PPU {
-    pub running: bool, // TODO: Right now "running" corresponds to the program status, but on a real game boy
-                       //       the PPU can be disabled while the CPU is active.
-    width: u32,
-    height: u32,
+    state: PPUState,
+    line: u32,       // The line we're currently on.
+    lclk: u32,       // The machine cycle for this line, from [0, 113].
+    width: u32,      // Width of the virtual window, fixed at 160.
+    height: u32,     // Height of the virtual window, fixed at 144.
     win: Window
 }
 
@@ -16,19 +26,35 @@ impl PPU {
         let (w, h) = (160, 144);
         let win = Window::new(w, h);
         PPU {
-            running: true,
+            state: PPUState::Off,
+            line: 0,
+            lclk: 0,
             width: w,
             height: h,
             win: win
         }
     }
 
+    // Tick operates on a machine clock cycle, and does the appropriate action for this cycle.
+    pub fn tick(&mut self) {
+        match self.state {
+            PPUState::Off => (),
+            PPUState::HBlank => {},
+            PPUState::VBlank => {},
+            PPUState::OAMSearch => {},
+            PPUState::Draw => {}
+        }
+
+        self.lclk += 1;
+    }
+
     pub fn start(&mut self) {
-        self.running = true;
+        self.state = PPUState::OAMSearch;
+        self.lclk = 0;
+        self.line = 0;
     }
 
     pub fn render(&mut self) {
-
         // TODO: Right now pixel format is RGB8 (8 bits for each component)
         // This can probably be lowered once I know more about the CGB.
         let mut pixels = Vec::new();
@@ -41,7 +67,7 @@ impl PPU {
             }
         }
 
-        if self.running {
+        if self.is_running() {
             self.win.get_events();
             if self.win.is_open() {
                 // Set LY = 0
@@ -53,6 +79,10 @@ impl PPU {
     }
 
     pub fn stop(&mut self) {
-        self.running = false;
+        self.state = PPUState::Off;
+    }
+
+    pub fn is_running(&self) -> bool {
+        self.state == PPUState::Off
     }
 }
