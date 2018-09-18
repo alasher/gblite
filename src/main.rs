@@ -42,6 +42,8 @@ fn main() {
     let mut z80 = cpu::CPU::new(mem);
     let mut cnt = 0;
 
+    lcd.start(); // TODO: Remove this, just for testing LCD pipeline
+
     // Now, run instructions *literally* forever!
     loop {
         if !running.load(Ordering::SeqCst) {
@@ -54,12 +56,12 @@ fn main() {
             break;
         }
 
-        lcd.render();
+        lcd.tick();
         if !z80.process() { break; }
         cnt += 1;
 
         if cfg!(debug_assertions) {
-            //thread::sleep(time::Duration::from_millis(1));
+            // thread::sleep(time::Duration::from_millis(1));
             if (cnt % 1000) == 0 {
                 println!("Instruction count: {}", cnt);
             }

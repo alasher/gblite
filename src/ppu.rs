@@ -35,17 +35,53 @@ impl PPU {
         }
     }
 
-    // Tick operates on a machine clock cycle, and does the appropriate action for this cycle.
+    // Tick performs the appropriate PPU action for this machine cycle.
     pub fn tick(&mut self) {
         match self.state {
             PPUState::Off => (),
-            PPUState::HBlank => {},
-            PPUState::VBlank => {},
-            PPUState::OAMSearch => {},
-            PPUState::Draw => {}
-        }
+            PPUState::HBlank => {
+                if self.lclk == 63 {
+                    self.render();
+                }
 
-        self.lclk += 1;
+                if self.lclk == 113 {
+                    if self.line == 143 {
+                        self.state = PPUState::VBlank;
+                    } else {
+                        self.state = PPUState::Draw;
+                    }
+                    self.line += 1;
+                    self.lclk = 0;
+                } else {
+                    self.lclk += 1;
+                }
+            },
+            PPUState::VBlank => {
+                if self.lclk == 113 {
+                    if self.line == 153 {
+                        self.state = PPUState::OAMSearch;
+                        self.line = 0;
+                    } else {
+                        self.line += 1;
+                    }
+                    self.lclk = 0;
+                } else {
+                    self.lclk += 1;
+                }
+            },
+            PPUState::OAMSearch => {
+                if self.lclk == 19 {
+                    self.state = PPUState::Draw;
+                }
+                self.lclk += 1;
+            },
+            PPUState::Draw => {
+                if self.lclk == 62 {
+                    self.state = PPUState::HBlank;
+                }
+                self.lclk += 1;
+            }
+        }
     }
 
     pub fn start(&mut self) {
@@ -54,7 +90,7 @@ impl PPU {
         self.line = 0;
     }
 
-    pub fn render(&mut self) {
+    fn render(&mut self) {
         // TODO: Right now pixel format is RGB8 (8 bits for each component)
         // This can probably be lowered once I know more about the CGB.
         let mut pixels = Vec::new();
@@ -83,6 +119,6 @@ impl PPU {
     }
 
     pub fn is_running(&self) -> bool {
-        self.state == PPUState::Off
+        self.state != PPUState::Off
     }
 }
