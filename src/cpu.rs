@@ -495,10 +495,6 @@ impl CPU {
         // matures a little.
         self.print_instruction_info(&inst, old_pc);
 
-        if self.regs.get(Reg16::BC) == 0xFFFe {
-            self.step = true;
-        }
-
         if self.breaks.contains(&old_pc) || self.step {
             self.step = false;
             self.regs.print_registers();

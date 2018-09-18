@@ -1,7 +1,6 @@
 extern crate num;
 extern crate ctrlc;
 extern crate sdl2;
-extern crate gl;
 
 mod registers;
 mod cpu;
