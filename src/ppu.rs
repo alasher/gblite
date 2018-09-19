@@ -14,11 +14,17 @@ enum PPUState {
 
 pub struct PPU {
     state: PPUState,
+    win: Window,
     line: u32,       // The line we're currently on.
     lclk: u32,       // The machine cycle for this line, from [0, 113].
     width: u32,      // Width of the virtual window, fixed at 160.
     height: u32,     // Height of the virtual window, fixed at 144.
-    win: Window
+    vram: Vec<u8>,   // We use a separate RAM for video memory to ensure it's not accessible
+                     // by the CPU during certain stages of rendering, like pixel transfer.
+    oam: Vec<u8>,    // Only the OAM RAM.
+    bg_map: u16,     // Offset to BG Map start address in VRAM, adjustble by LCDC bit 3.
+    window_map: u16, // Offset to Window map start address in VRAM, adjustable by LCDC bit 6.
+    bg_data: u16     // Offset to BG/Window data start address in VRAM, adjustable by LCDC bit 4.
 }
 
 impl PPU {
@@ -27,11 +33,16 @@ impl PPU {
         let win = Window::new(w, h);
         PPU {
             state: PPUState::Off,
+            win: win,
             line: 0,
             lclk: 0,
             width: w,
             height: h,
-            win: win
+            vram: vec![0; 0x2000],
+            oam: vec![0; 0xa0],
+            bg_map: 0,
+            window_map: 0,
+            bg_data: 0
         }
     }
 
