@@ -37,11 +37,9 @@ fn main() {
     let mut mem = memory::Memory::new(0x10000);
     mem.load_rom_file(&fname);
 
-    let mut lcd = ppu::PPU::new();
-    let mut z80 = cpu::CPU::new(mem);
+    let mut ppu = ppu::PPU::new();
+    let mut z80 = cpu::CPU::new(mem, ppu);
     let mut cnt = 0;
-
-    lcd.start(); // TODO: Remove this, just for testing LCD pipeline
 
     // Now, run instructions *literally* forever!
     loop {
@@ -50,17 +48,11 @@ fn main() {
             break;
         }
 
-        if !lcd.is_running() {
-            println!("Closed PPU window!");
-            break;
-        }
-
-        lcd.tick();
         if !z80.process() { break; }
         cnt += 1;
 
         if cfg!(debug_assertions) {
-            // thread::sleep(time::Duration::from_millis(1));
+            thread::sleep(time::Duration::from_millis(1));
             if (cnt % 1000) == 0 {
                 println!("Instruction count: {}", cnt);
             }

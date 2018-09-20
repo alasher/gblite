@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use memory::Memory;
+use ppu::PPU;
 use lookup::Instruction;
 use registers::*;
 use util;
@@ -53,7 +54,8 @@ impl fmt::Display for AluOp {
 pub struct CPU {
     pub regs: RegisterCache,
     pub mem: Memory,
-    pub ir_enabled: bool,
+    pub ppu: PPU,
+    ir_enabled: bool,
     quit: bool,
     was_zero: bool,
     half_carry: bool,
@@ -63,10 +65,11 @@ pub struct CPU {
 }
 
 impl CPU {
-    pub fn new(mem: Memory) -> CPU {
+    pub fn new(mem: Memory, ppu: PPU) -> CPU {
         CPU {
             regs: RegisterCache::new(),
             mem: mem,
+            ppu: ppu,
             ir_enabled: true,
             quit: false,
             was_zero: false,
@@ -461,6 +464,19 @@ impl CPU {
     fn stop(&mut self) {
         println!("Encountered STOP instruction, exiting!");
         self.quit = true;
+    }
+
+    // Run the LCD, then process the current instruction.
+    // TODO: This should eventually be cycle-accurate
+    pub fn tick(&mut self) -> bool {
+        self.ppu.tick();
+
+        if !self.ppu.is_running() {
+            println!("Closed PPU window!");
+            false
+        } else {
+            self.process()
+        }
     }
 
     // Run the instruction at the current PC, return true if successful.
