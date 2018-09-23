@@ -49,6 +49,7 @@ impl PPU {
     }
 
     // Tick performs the appropriate PPU action for this machine cycle.
+    // TODO: Adjust cycle accuracy of Draw state, timings can vary slightly.
     pub fn tick(&mut self) {
         match self.state {
             PPUState::Off => (),
@@ -130,5 +131,30 @@ impl PPU {
 
     pub fn is_running(&self) -> bool {
         self.state != PPUState::Off
+    }
+
+    // VRAM data access, given absolute memory address
+    // VRAM [0x8000, 0xa000) -> [0x0, 0x2000]
+    // OAM RAM access [0xFE00, 0xFEA0) -> []
+    // TODO: Find a way to share memory::Memory
+    pub fn get(&self, addr: u16) -> u8 {
+        if addr >= 0x8000 &&  addr < 0xa000 {
+            self.vram[addr as usize - 0x8000]
+        } else if addr >= 0x7e00 && addr < 0x7ea0 {
+            self.oam[addr as usize - 0x7e00]
+        } else {
+            panic!("Invalid VRAM memory access!");
+            0
+        }
+    }
+
+    pub fn set(&mut self, val: u8, addr: u16) {
+        if addr >= 0x8000 &&  addr < 0xa000 {
+            self.vram[addr as usize - 0x8000] = val;
+        } else if addr >= 0x7e00 && addr < 0x7ea0 {
+            self.oam[addr as usize - 0x7e00] = val;
+        } else {
+            panic!("Invalid VRAM memory access!");
+        }
     }
 }
