@@ -8,6 +8,11 @@ pub struct Memory {
     bios: Vec<u8>
 }
 
+pub enum MemClient {
+    CPU,
+    PPU
+}
+
 impl Memory {
     pub fn new(size: usize) -> Memory {
         Memory {
@@ -17,9 +22,8 @@ impl Memory {
         }
     }
 
-    // TODO: Need to pull from mem for some ranges, and ROM for others. Implement some functions
-    // for ROM switching, so we can do that within the CPU.
-    pub fn get(&self, addr: u16) -> u8 {
+    // TODO: Implement ROM switching and interfaces for different memory bank controllers.
+    pub fn get(&self, addr: u16, client: MemClient) -> u8 {
         let a = addr as usize;
         if a < 0x100 {
             if self.bootrom_enabled() {
@@ -37,7 +41,7 @@ impl Memory {
         }
     }
 
-    pub fn set(&mut self, val: u8, addr: u16) {
+    pub fn set(&mut self, val: u8, addr: u16, client: MemClient) {
         if addr >= 0xFF00 && addr <= 0xFF7F {
             println!("[MEM] Setting I/O Register 0x{:04X} = 0x{:02X}", addr, val);
         }

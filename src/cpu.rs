@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use memory::Memory;
+use memory::MemClient;
 use ppu::PPU;
 use lookup::Instruction;
 use registers::*;
@@ -11,6 +12,7 @@ use std::fmt;
 use std::io;
 use std::io::Write;
 use std::collections::HashSet;
+use std::sync::Arc;
 
 #[derive(Copy, Clone, PartialEq)]
 enum AluOp {
@@ -53,7 +55,7 @@ impl fmt::Display for AluOp {
 
 pub struct CPU {
     pub regs: RegisterCache,
-    pub mem: Memory,
+    pub mem: Arc<Memory>,
     pub ppu: PPU,
     ir_enabled: bool,
     quit: bool,
@@ -65,7 +67,7 @@ pub struct CPU {
 }
 
 impl CPU {
-    pub fn new(mem: Memory, ppu: PPU) -> CPU {
+    pub fn new(mem: Arc<Memory>, ppu: PPU) -> CPU {
         CPU {
             regs: RegisterCache::new(),
             mem: mem,
@@ -80,9 +82,18 @@ impl CPU {
         }
     }
 
+    fn mem_get(&self, addr: u16) -> u8 {
+        self.mem.get(addr, MemClient::CPU)
+    }
+
+    fn mem_set(&mut self, val: u8, addr: u16) {
+        // self.mem.get_mut().unwrap().set(val, addr, MemClient::CPU);
+        Arc::get_mut(&mut self.mem).unwrap().set(val, addr, MemClient::CPU);
+    }
+
     // Get the u16 value starting at $(addr), little endian.
     fn parse_u16(&self, addr: u16) -> u16 {
-        util::join_u8((self.mem.get(addr), self.mem.get(addr+1)))
+        util::join_u8((self.mem_get(addr), self.mem_get(addr+1)))
     }
 
     // Push addr from given register onto stack
@@ -90,8 +101,8 @@ impl CPU {
         self.regs.sub(Reg16::SP, 2);
         let sp_val = self.regs.get(Reg16::SP);
         let split_addr = util::split_u16(self.regs.get(src));
-        self.mem.set(split_addr.0, sp_val);
-        self.mem.set(split_addr.1, sp_val+1);
+        self.mem_set(split_addr.0, sp_val);
+        self.mem_set(split_addr.1, sp_val+1);
     }
 
     // Pop topmost u16 value from stack, store to given register
@@ -141,12 +152,12 @@ impl CPU {
     // Copy from given register into the memory address pointed to by given Reg16
     fn set_reg_ptr(&mut self, dst: Reg16, src: Reg8) {
         let val = self.regs.get(src);
-        self.mem.set(val, self.regs.get(dst));
+        self.mem_set(val, self.regs.get(dst));
     }
 
     // Copy value from (HL) into given register.
     fn get_reg_ptr(&mut self, dst: Reg8, src: Reg16) {
-        let val = self.mem.get(self.regs.get(src));
+        let val = self.mem_get(self.regs.get(src));
         self.regs.set(dst, val);
     }
 
@@ -168,25 +179,25 @@ impl CPU {
     fn ld_fast_page(&mut self, is_get: bool) {
         let addr = 0xff00 + self.regs.get(Reg8::C) as u16;
         if is_get {
-            self.regs.set(Reg8::A, self.mem.get(addr));
+            self.regs.set(Reg8::A, self.mem_get(addr));
         } else {
-            self.mem.set(self.regs.get(Reg8::A), addr);
+            self.mem_set(self.regs.get(Reg8::A), addr);
         }
     }
 
     fn write_sp_to_ptr(&mut self, addr: u16) {
         let split_addr = util::split_u16(self.regs.get(Reg16::SP));
-        self.mem.set(split_addr.0, addr);
-        self.mem.set(split_addr.1, addr+1);
+        self.mem_set(split_addr.0, addr);
+        self.mem_set(split_addr.1, addr+1);
     }
 
     // Increment/decrement for (HL) value. TODO: should this be done another way? Maybe implement
     // it as a Reg8::HL_PTR, or something special in ALU?
     fn hl_ptr_inc_dec(&mut self, is_add: bool) {
         let addr = self.regs.get(Reg16::HL);
-        let val = self.mem.get(addr);
+        let val = self.mem_get(addr);
         let val = if is_add { val + 1 } else { val - 1};
-        self.mem.set(val, addr);
+        self.mem_set(val, addr);
     }
 
     // Jump to the given address if Z or CY match what we expect
@@ -361,15 +372,15 @@ impl CPU {
 
     fn arith_hl_ptr(&mut self, op: AluOp, flags: FlagStatus) {
         let operand_b = self.regs.get(Reg16::HL);
-        let operand_b = self.mem.get(operand_b);
+        let operand_b = self.mem_get(operand_b);
         self.arith_imm(op, Reg8::A, flags, operand_b);
     }
 
     fn bitwise_hl_ptr(&mut self, op: AluOp, flags: FlagStatus) {
         let addr = self.regs.get(Reg16::HL);
-        let operand_a = self.mem.get(addr);
+        let operand_a = self.mem_get(addr);
         let result = self.alu(op, operand_a, 0);
-        self.mem.set(result, addr);
+        self.mem_set(result, addr);
         self.evaluate_flags(flags);
     }
 
@@ -483,14 +494,14 @@ impl CPU {
     pub fn process(&mut self) -> bool {
         if self.quit { return false; }
         let old_pc = self.regs.get(Reg16::PC);
-        let opcode = self.mem.get(old_pc);
-        let _operand8  = self.mem.get(old_pc+1);
+        let opcode = self.mem_get(old_pc);
+        let _operand8  = self.mem_get(old_pc+1);
         let _operand16 = self.parse_u16(old_pc+1);
 
         // Adjust opcode if it's a 0xcb prefixed instruction
         let opcode = if opcode == 0xcb {
             let newop = ((0xcb as u16) << 8) | _operand8 as u16;
-            let _operand8  = self.mem.get(old_pc+2);
+            let _operand8  = self.mem_get(old_pc+2);
             let _operand16 = self.parse_u16(old_pc+2);
             newop
         } else {
@@ -573,7 +584,7 @@ impl CPU {
             0x33 => self.regs.add(Reg16::HL, 1),
             0x34 => self.hl_ptr_inc_dec(true),
             0x35 => self.hl_ptr_inc_dec(false),
-            0x36 => self.mem.set(_operand8, self.regs.get(Reg16::HL)),
+            0x36 => self.mem_set(_operand8, self.regs.get(Reg16::HL)),
             0x37 => self.regs.set_flag(Flag::CY, true),
             0x38 => self.jump_relative_flag(Flag::CY, false, _operand8),
             0x39 => self.add_hl(lookup::get_flags(opcode), Reg16::SP),
@@ -749,7 +760,7 @@ impl CPU {
             0xdd => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xde => self.arith_imm(AluOp::Sub(true), Reg8::A, lookup::get_flags(opcode), _operand8),
             0xdf => self.call(0x18),
-            0xe0 => self.mem.set(self.regs.get(Reg8::A), 0xff00 + (_operand8 as u16)),
+            0xe0 => self.mem_set(self.regs.get(Reg8::A), 0xff00 + (_operand8 as u16)),
             0xe1 => self.pop(Reg16::HL),
             0xe2 => self.ld_fast_page(true),
             0xe3 => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
@@ -759,13 +770,13 @@ impl CPU {
             0xe7 => self.call(0x20),
             0xe8 => self.add_sp_signed(lookup::get_flags(opcode), Reg16::SP, _operand8 as i8),
             0xe9 => self.jump_hl_ptr(),
-            0xea => self.mem.set(self.regs.get(Reg8::A), _operand16),
+            0xea => self.mem_set(self.regs.get(Reg8::A), _operand16),
             0xeb => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xec => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xed => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xee => self.arith_imm(AluOp::Xor, Reg8::A, lookup::get_flags(opcode), _operand8),
             0xef => self.call(0x28),
-            0xf0 => self.regs.set(Reg8::A, self.mem.get(0xff00 + (_operand8 as u16))),
+            0xf0 => self.regs.set(Reg8::A, self.mem_get(0xff00 + (_operand8 as u16))),
             0xf1 => self.pop(Reg16::AF),
             0xf2 => self.ld_fast_page(false),
             0xf3 => self.ir_enabled = false,
@@ -775,7 +786,7 @@ impl CPU {
             0xf7 => self.call(0x30),
             0xf8 => self.add_sp_signed(lookup::get_flags(opcode), Reg16::HL, _operand8 as i8),
             0xf9 => self.regs.copy(Reg16::SP, Reg16::HL),
-            0xfa => self.regs.set(Reg8::A, self.mem.get(_operand16)),
+            0xfa => self.regs.set(Reg8::A, self.mem_get(_operand16)),
             0xfb => self.ir_enabled = true,
             0xfc => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xfd => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
@@ -1061,7 +1072,7 @@ impl CPU {
         if inst.bytes > 1 {
             pstr += " - operands: ";
             for i in 1..inst.bytes {
-                pstr += &format!("0x{:02x} ", self.mem.get(old_pc + i as u16));
+                pstr += &format!("0x{:02x} ", self.mem_get(old_pc + i as u16));
             }
         }
         println!("{}", pstr);

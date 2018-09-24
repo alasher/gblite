@@ -34,11 +34,11 @@ fn main() {
         r.store(false, Ordering::SeqCst);
     }).expect("Error setting Ctrl-C handler");
 
-    let mut mem = memory::Memory::new(0x10000);
+    let mut mem = Arc::new(memory::Memory::new(0x10000));
     mem.load_rom_file(&fname);
 
-    let mut ppu = ppu::PPU::new();
-    let mut z80 = cpu::CPU::new(mem, ppu);
+    let mut ppu = ppu::PPU::new(mem.clone());
+    let mut z80 = cpu::CPU::new(mem.clone(), ppu);
     let mut cnt = 0;
 
     // Now, run instructions *literally* forever!

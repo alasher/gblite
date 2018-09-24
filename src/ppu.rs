@@ -2,6 +2,10 @@
 // the window abstracts platform-specific details related to operating the window.
 
 use window::Window;
+use memory::Memory;
+use memory::MemClient;
+
+use std::sync::Arc;
 
 #[derive(Copy, Clone, PartialEq)]
 enum PPUState {
@@ -15,33 +19,30 @@ enum PPUState {
 pub struct PPU {
     lcd: Window,      // The actual graphics window, not to be confused with a Game Boy window map/tile.
     state: PPUState,  // Current PPU state, non-off is STAT[0:1], OFF is controlled by LCDC bit 7.
+    mem: Arc<Memory>, // Reference to our Memory object.
     width: u32,       // Width of the virtual window, fixed at 160.
     height: u32,      // Height of the virtual window, fixed at 144.
     ly: u32,          // The line we're currently on.
     lclk: u32,        // The machine cycle for this line, from [0, 113].
     lyc: u32,         // Value to compare to LY, can generate an interrupt.
-    vram: Vec<u8>,    // We use a separate RAM for video memory to ensure it's not accessible
-                      // by the CPU during certain stages of rendering, like pixel transfer.
-    oam: Vec<u8>,     // Only the OAM RAM.
     bgr_map_off: u16, // Offset to BG Map start address in VRAM, adjustble by LCDC bit 3.
     win_map_off: u16, // Offset to Window map start address in VRAM, adjustable by LCDC bit 6.
     bgr_dat_off: u16  // Offset to BG/Window data start address in VRAM, adjustable by LCDC bit 4.
 }
 
 impl PPU {
-    pub fn new() -> Self {
+    pub fn new(mem: Arc<Memory>) -> Self {
         let (w, h) = (160, 144);
         let lcd = Window::new(w, h);
         PPU {
             lcd: lcd,
             state: PPUState::Off,
+            mem: mem,
             width: w,
             height: h,
             ly: 0,
             lclk: 0,
             lyc: 0,
-            vram: vec![0; 0x2000],
-            oam: vec![0; 0xa0],
             bgr_map_off: 0,
             win_map_off: 0,
             bgr_dat_off: 0
@@ -136,25 +137,11 @@ impl PPU {
     // VRAM data access, given absolute memory address
     // VRAM [0x8000, 0xa000) -> [0x0, 0x2000]
     // OAM RAM access [0xFE00, 0xFEA0) -> []
-    // TODO: Find a way to share memory::Memory
-    pub fn get(&self, addr: u16) -> u8 {
-        if addr >= 0x8000 &&  addr < 0xa000 {
-            self.vram[addr as usize - 0x8000]
-        } else if addr >= 0x7e00 && addr < 0x7ea0 {
-            self.oam[addr as usize - 0x7e00]
-        } else {
-            panic!("Invalid VRAM memory access!");
-            0
-        }
+    fn get(&self, addr: u16) -> u8 {
+        self.mem.get(addr, MemClient::PPU)
     }
 
-    pub fn set(&mut self, val: u8, addr: u16) {
-        if addr >= 0x8000 &&  addr < 0xa000 {
-            self.vram[addr as usize - 0x8000] = val;
-        } else if addr >= 0x7e00 && addr < 0x7ea0 {
-            self.oam[addr as usize - 0x7e00] = val;
-        } else {
-            panic!("Invalid VRAM memory access!");
-        }
+    fn set(&mut self, val: u8, addr: u16) {
+        self.mem.set(val, addr, MemClient::PPU);
     }
 }
