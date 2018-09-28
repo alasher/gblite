@@ -1,3 +1,5 @@
+#![feature(nll)]
+
 extern crate num;
 extern crate ctrlc;
 extern crate sdl2;
@@ -34,10 +36,11 @@ fn main() {
         r.store(false, Ordering::SeqCst);
     }).expect("Error setting Ctrl-C handler");
 
-    let mut mem = Arc::new(memory::Memory::new(0x10000));
+    let mut mem = memory::Memory::new(0x10000);
     mem.load_rom_file(&fname);
+    let mem = Arc::new(mem);
 
-    let mut ppu = ppu::PPU::new(mem.clone());
+    let ppu = ppu::PPU::new(mem.clone());
     let mut z80 = cpu::CPU::new(mem.clone(), ppu);
     let mut cnt = 0;
 

@@ -142,6 +142,6 @@ impl PPU {
     }
 
     fn set(&mut self, val: u8, addr: u16) {
-        self.mem.set(val, addr, MemClient::PPU);
+        Arc::get_mut(&mut self.mem).unwrap().set(val, addr, MemClient::PPU);
     }
 }
