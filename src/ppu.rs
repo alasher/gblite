@@ -6,6 +6,7 @@ use memory::Memory;
 use memory::MemClient;
 
 use std::sync::Arc;
+use std::sync::Mutex;
 
 #[derive(Copy, Clone, PartialEq)]
 enum PPUState {
@@ -17,21 +18,21 @@ enum PPUState {
 }
 
 pub struct PPU {
-    lcd: Window,      // The actual graphics window, not to be confused with a Game Boy window map/tile.
-    state: PPUState,  // Current PPU state, non-off is STAT[0:1], OFF is controlled by LCDC bit 7.
-    mem: Arc<Memory>, // Reference to our Memory object.
-    width: u32,       // Width of the virtual window, fixed at 160.
-    height: u32,      // Height of the virtual window, fixed at 144.
-    ly: u32,          // The line we're currently on.
-    lclk: u32,        // The machine cycle for this line, from [0, 113].
-    lyc: u32,         // Value to compare to LY, can generate an interrupt.
-    bgr_map_off: u16, // Offset to BG Map start address in VRAM, adjustble by LCDC bit 3.
-    win_map_off: u16, // Offset to Window map start address in VRAM, adjustable by LCDC bit 6.
-    bgr_dat_off: u16  // Offset to BG/Window data start address in VRAM, adjustable by LCDC bit 4.
+    lcd: Window,             // The actual graphics window, not to be confused with a Game Boy window map/tile.
+    state: PPUState,         // Current PPU state, non-off is STAT[0:1], OFF is controlled by LCDC bit 7.
+    mem: Arc<Mutex<Memory>>, // Reference to our Memory object.
+    width: u32,              // Width of the virtual window, fixed at 160.
+    height: u32,             // Height of the virtual window, fixed at 144.
+    ly: u32,                 // The line we're currently on.
+    lclk: u32,               // The machine cycle for this line, from [0, 113].
+    lyc: u32,                // Value to compare to LY, can generate an interrupt.
+    bgr_map_off: u16,        // Offset to BG Map start address in VRAM, adjustble by LCDC bit 3.
+    win_map_off: u16,        // Offset to Window map start address in VRAM, adjustable by LCDC bit 6.
+    bgr_dat_off: u16         // Offset to BG/Window data start address in VRAM, adjustable by LCDC bit 4.
 }
 
 impl PPU {
-    pub fn new(mem: Arc<Memory>) -> Self {
+    pub fn new(mem: Arc<Mutex<Memory>>) -> Self {
         let (w, h) = (160, 144);
         let lcd = Window::new(w, h);
         PPU {
@@ -137,11 +138,13 @@ impl PPU {
     // VRAM data access, given absolute memory address
     // VRAM [0x8000, 0xa000) -> [0x0, 0x2000]
     // OAM RAM access [0xFE00, 0xFEA0) -> []
-    fn get(&self, addr: u16) -> u8 {
-        self.mem.get(addr, MemClient::PPU)
+    fn mem_get(&self, addr: u16) -> u8 {
+        let mut mref = self.mem.lock().unwrap();
+        (*mref).get(addr, MemClient::PPU)
     }
 
-    fn set(&mut self, val: u8, addr: u16) {
-        Arc::get_mut(&mut self.mem).unwrap().set(val, addr, MemClient::PPU);
+    fn mem_set(&mut self, val: u8, addr: u16) {
+        let mut mref = self.mem.lock().unwrap();
+        (*mref).set(val, addr, MemClient::PPU)
     }
 }

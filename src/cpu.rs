@@ -13,6 +13,7 @@ use std::io;
 use std::io::Write;
 use std::collections::HashSet;
 use std::sync::Arc;
+use std::sync::Mutex;
 
 #[derive(Copy, Clone, PartialEq)]
 enum AluOp {
@@ -55,7 +56,7 @@ impl fmt::Display for AluOp {
 
 pub struct CPU {
     pub regs: RegisterCache,
-    pub mem: Arc<Memory>,
+    pub mem: Arc<Mutex<Memory>>,
     pub ppu: PPU,
     ir_enabled: bool,
     quit: bool,
@@ -67,7 +68,7 @@ pub struct CPU {
 }
 
 impl CPU {
-    pub fn new(mem: Arc<Memory>, ppu: PPU) -> CPU {
+    pub fn new(mem: Arc<Mutex<Memory>>, ppu: PPU) -> CPU {
         CPU {
             regs: RegisterCache::new(),
             mem: mem,
@@ -83,12 +84,13 @@ impl CPU {
     }
 
     fn mem_get(&self, addr: u16) -> u8 {
-        self.mem.get(addr, MemClient::CPU)
+        let mut mref = self.mem.lock().unwrap();
+        (*mref).get(addr, MemClient::CPU)
     }
 
     fn mem_set(&mut self, val: u8, addr: u16) {
-        // self.mem.get_mut().unwrap().set(val, addr, MemClient::CPU);
-        Arc::get_mut(&mut self.mem).unwrap().set(val, addr, MemClient::CPU);
+        let mut mref = self.mem.lock().unwrap();
+        (*mref).set(val, addr, MemClient::CPU);
     }
 
     // Get the u16 value starting at $(addr), little endian.

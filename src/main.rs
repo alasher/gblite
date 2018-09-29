@@ -14,6 +14,7 @@ mod lookup;
 
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
+use std::sync::Mutex;
 use std::thread;
 use std::time;
 
@@ -38,7 +39,7 @@ fn main() {
 
     let mut mem = memory::Memory::new(0x10000);
     mem.load_rom_file(&fname);
-    let mem = Arc::new(mem);
+    let mem = Arc::new(Mutex::new(mem));
 
     let ppu = ppu::PPU::new(mem.clone());
     let mut z80 = cpu::CPU::new(mem.clone(), ppu);
