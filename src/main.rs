@@ -52,7 +52,7 @@ fn main() {
             break;
         }
 
-        if !z80.process() { break; }
+        if !z80.tick() { break; }
         cnt += 1;
 
         if cfg!(debug_assertions) {

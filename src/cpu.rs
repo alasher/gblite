@@ -484,7 +484,7 @@ impl CPU {
     pub fn tick(&mut self) -> bool {
         self.ppu.tick();
 
-        if !self.ppu.is_running() {
+        if !self.ppu.is_alive() {
             println!("Closed PPU window!");
             false
         } else {

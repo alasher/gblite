@@ -10,11 +10,12 @@ use std::sync::Mutex;
 
 #[derive(Copy, Clone, PartialEq)]
 enum PPUState {
-    Off,
-    HBlank,
-    VBlank,
-    OAMSearch,
-    Draw
+    Quit,        // Quit is a signal from the OS window indicating to terminate gblite.
+    Off,         // Off keeps the application open, but leaves the LCD inactive.
+    HBlank,      // HBlank is the LCD idle period after each line is drawn.
+    VBlank,      // VBlank is the LCD idle period after the final line is drawn.
+    OAMSearch,   // OAM Search is the initial linear scan of objects on a given line.
+    Draw         // Draw is the lookup and transfer period of pixels to the LCD.
 }
 
 pub struct PPU {
@@ -53,12 +54,26 @@ impl PPU {
     // Tick performs the appropriate PPU action for this machine cycle.
     // TODO: Adjust cycle accuracy of Draw state, timings can vary slightly.
     pub fn tick(&mut self) {
+
+        // Check window events
+        if self.state == PPUState::Quit {
+            return;
+        } else {
+            self.lcd.get_events();
+            if !self.lcd.is_open() {
+                self.terminate();
+                return;
+            }
+        }
+
         match self.state {
+            PPUState::Quit => (),
             PPUState::Off => (),
             PPUState::HBlank => {
                 if self.lclk == 113 {
                     if self.ly == 143 {
                         self.state = PPUState::VBlank;
+                        self.render();
                     } else {
                         self.state = PPUState::Draw;
                     }
@@ -116,23 +131,19 @@ impl PPU {
             }
         }
 
-        if self.is_running() {
-            self.lcd.get_events();
-            if self.lcd.is_open() {
-                // Set LY = 0
-                self.lcd.draw(&pixels);
-            } else {
-                self.stop();
-            }
-        }
+        self.lcd.draw(&pixels);
     }
 
     pub fn stop(&mut self) {
         self.state = PPUState::Off;
     }
 
-    pub fn is_running(&self) -> bool {
-        self.state != PPUState::Off
+    pub fn terminate(&mut self) {
+        self.state = PPUState::Quit;
+    }
+
+    pub fn is_alive(&self) -> bool {
+        self.state != PPUState::Quit
     }
 
     // VRAM data access, given absolute memory address
