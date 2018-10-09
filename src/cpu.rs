@@ -345,10 +345,10 @@ impl CPU {
             _ => result == 0
         };
 
-        if cfg!(debug_assertions) {
-            println!("Result of ALU instruction {} with input {}, {} => {}. Z: {}, H: {}, CY: {}",
-                     op, op_a, op_b, result, self.was_zero, self.half_carry, self.full_carry);
-        }
+        // if cfg!(debug_assertions) {
+        //     println!("Result of ALU instruction {} with input {}, {} => {}. Z: {}, H: {}, CY: {}",
+        //              op, op_a, op_b, result, self.was_zero, self.half_carry, self.full_carry);
+        // }
 
         result
     }
@@ -522,7 +522,7 @@ impl CPU {
 
         // Print info about this instruction. Leaving this on all the time until the software
         // matures a little.
-        self.print_instruction_info(&inst, old_pc);
+        // self.print_instruction_info(&inst, old_pc);
 
         if self.breaks.contains(&old_pc) || self.step {
             self.step = false;

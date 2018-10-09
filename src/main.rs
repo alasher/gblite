@@ -56,7 +56,6 @@ fn main() {
         cnt += 1;
 
         if cfg!(debug_assertions) {
-            thread::sleep(time::Duration::from_millis(1));
             if (cnt % 1000) == 0 {
                 println!("Instruction count: {}", cnt);
             }
