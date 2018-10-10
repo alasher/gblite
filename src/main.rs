@@ -1,4 +1,5 @@
 #![feature(nll)]
+#![feature(duration_as_u128)] 
 
 extern crate num;
 extern crate ctrlc;
@@ -55,11 +56,11 @@ fn main() {
         if !z80.tick() { break; }
         cnt += 1;
 
-        if cfg!(debug_assertions) {
-            if (cnt % 1000) == 0 {
-                println!("Instruction count: {}", cnt);
-            }
-        }
+        // if cfg!(debug_assertions) {
+        //     if (cnt % 1000) == 0 {
+        //         println!("Instruction count: {}", cnt);
+        //     }
+        // }
     }
 
     thread::sleep(time::Duration::from_millis(100));

@@ -43,7 +43,7 @@ impl Memory {
 
     pub fn set(&mut self, val: u8, addr: u16, client: MemClient) {
         if addr >= 0xFF00 && addr <= 0xFF7F {
-            println!("[MEM] Setting I/O Register 0x{:04X} = 0x{:02X}", addr, val);
+            // println!("[MEM] Setting I/O Register 0x{:04X} = 0x{:02X}", addr, val);
         }
         self.mem[addr as usize] = val;
     }

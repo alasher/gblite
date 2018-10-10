@@ -7,6 +7,7 @@ use memory::MemClient;
 
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::time::{Instant, Duration};
 
 #[derive(Copy, Clone, PartialEq)]
 enum PPUState {
@@ -39,6 +40,7 @@ pub struct PPU {
     lcd: Window,             // The actual graphics window, not to be confused with a Game Boy window map/tile.
     state: PPUState,         // Current PPU state, non-off is STAT[0:1], OFF is controlled by LCDC bit 7.
     mem: Arc<Mutex<Memory>>, // Reference to our Memory object.
+    last_frame: Instant,     // Timestamp of last frame rendered, to calculate framerate.
     width: u32,              // Width of the virtual window, fixed at 160.
     height: u32,             // Height of the virtual window, fixed at 144.
     lclk: u32,               // The machine cycle for this line, from [0, 113].
@@ -49,7 +51,6 @@ pub struct PPU {
     obj_en: bool,            // True if sprites (or OBJs) are enabled.
     bgr_en: bool,            // True if background rendering enabled. Always enabled on CGB.
     tall_objs: bool          // If false, an 8x8 OBJ is used. Otherwise, an 8x16 OBJ is used.
-
 }
 
 impl PPU {
@@ -61,6 +62,7 @@ impl PPU {
             lcd: lcd,
             state: PPUState::Off,
             mem: mem,
+            last_frame: Instant::now(),
             width: w,
             height: h,
             lclk: 0,
@@ -158,6 +160,12 @@ impl PPU {
         }
 
         self.lcd.draw(&pixels);
+
+        // Print framerate info if debugging is enabled
+        let now = Instant::now();
+        let frame_time = now.duration_since(self.last_frame);
+        self.last_frame = now;
+        println!("Render time for this frame: {} ms, or {} fps.", frame_time.as_millis(), 1.0 / (frame_time.as_millis() as u32) as f32 * 1000.0);
     }
 
     fn stop(&mut self) {
