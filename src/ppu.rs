@@ -44,7 +44,12 @@ pub struct PPU {
     lclk: u32,               // The machine cycle for this line, from [0, 113].
     bgr_map_off: u16,        // Offset to BG Map start address in VRAM, adjustble by LCDC bit 3.
     win_map_off: u16,        // Offset to Window map start address in VRAM, adjustable by LCDC bit 6.
-    bgr_dat_off: u16         // Offset to BG/Window data start address in VRAM, adjustable by LCDC bit 4.
+    bgr_dat_off: u16,        // Offset to BG/Window data start address in VRAM, adjustable by LCDC bit 4.
+    win_en: bool,            // True if window is enabled. Note this window is drawn, it's not about the SDL window.
+    obj_en: bool,            // True if sprites (or OBJs) are enabled.
+    bgr_en: bool,            // True if background rendering enabled. Always enabled on CGB.
+    tall_objs: bool          // If false, an 8x8 OBJ is used. Otherwise, an 8x16 OBJ is used.
+
 }
 
 impl PPU {
@@ -54,17 +59,21 @@ impl PPU {
 
         let mut ppu = PPU {
             lcd: lcd,
-            state: PPUState::OAMSearch,
+            state: PPUState::Off,
             mem: mem,
             width: w,
             height: h,
             lclk: 0,
             bgr_map_off: 0,
             win_map_off: 0,
-            bgr_dat_off: 0
+            bgr_dat_off: 0,
+            win_en:    false,
+            obj_en:    false,
+            bgr_en:    false,
+            tall_objs: false
         };
 
-        // Initialize PPU config registesr
+        // Initialize PPU config registers
         ppu.reg_set(PPUReg::LCDC, 0x91);
         ppu.reg_set(PPUReg::BGP, 0xFC);
         ppu.reg_set(PPUReg::OBP0, 0xFF);
@@ -78,16 +87,6 @@ impl PPU {
     pub fn tick(&mut self) {
 
         // Check window events, close if necessary
-        if self.state == PPUState::Quit {
-            return;
-        } else {
-            self.lcd.get_events();
-            if !self.lcd.is_open() {
-                self.terminate();
-                return;
-            }
-        }
-
         self.check_events();
 
         let ly = self.reg_get(PPUReg::LY);
@@ -137,7 +136,8 @@ impl PPU {
         }
     }
 
-    pub fn start(&mut self) {
+    // Start and stop are not public, they must be activated by LCDC.
+    fn start(&mut self) {
         self.state = PPUState::OAMSearch;
         self.lclk = 0;
         self.reg_set(PPUReg::LY, 0);
@@ -160,7 +160,7 @@ impl PPU {
         self.lcd.draw(&pixels);
     }
 
-    pub fn stop(&mut self) {
+    fn stop(&mut self) {
         self.state = PPUState::Off;
     }
 
@@ -168,22 +168,48 @@ impl PPU {
         self.state = PPUState::Quit;
     }
 
+    pub fn is_rendering(&self) -> bool {
+        self.state != PPUState::Off && self.is_alive()
+    }
+
     pub fn is_alive(&self) -> bool {
         self.state != PPUState::Quit
     }
 
     fn check_events(&mut self) {
+        // Do nothing if we've terminated the application.
+        if !self.is_alive() {
+            return;
+        }
+
         // Check window for termination events
         self.lcd.get_events();
         if !self.lcd.is_open() {
             self.terminate();
+            return;
         }
 
-        // Check for register changes
+        // Check LCDC for status changes.
+        let lcdc = self.reg_get(PPUReg::LCDC);
+        let lcdc_on = (lcdc & 0x80) != 0;
+        if lcdc_on && !self.is_rendering() {
+            self.start();
+        } else if !lcdc_on && self.is_rendering() {
+            self.stop();
+        }
+        self.win_map_off = if (lcdc & 0x40) != 0 { 0x9800 } else { 0x9C00 };
+        self.bgr_dat_off = if (lcdc & 0x10) != 0 { 0x8800 } else { 0x8000 };
+        self.bgr_map_off = if (lcdc & 0x08) != 0 { 0x9800 } else { 0x9C00 };
+        self.win_en = (lcdc & 0x20) != 0;
+        self.obj_en = (lcdc & 0x02) != 0;
+        self.bgr_en = (lcdc & 0x01) != 0;
+        self.tall_objs = (lcdc & 0x04) != 0;
     }
 
     fn reg_get(&self, reg: PPUReg) -> u8 {
-        self.mem_get(reg as u16)
+        let val = self.mem_get(reg as u16);
+
+        val
     }
 
     fn reg_set(&mut self, reg: PPUReg, val: u8) {
