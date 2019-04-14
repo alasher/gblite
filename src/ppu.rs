@@ -7,7 +7,7 @@ use memory::MemClient;
 
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::time::{Instant, Duration};
+use std::time::Instant;
 
 #[derive(Copy, Clone, PartialEq)]
 enum PPUState {
@@ -88,7 +88,7 @@ impl PPU {
     // TODO: Adjust cycle accuracy of Draw state, timings can vary slightly.
     pub fn tick(&mut self) {
 
-        // Check window events, close if necessary
+        // Check window events and for register changes
         self.check_events();
 
         let ly = self.reg_get(PPUReg::LY);
@@ -228,7 +228,7 @@ impl PPU {
     // VRAM [0x8000, 0xa000) -> [0x0, 0x2000]
     // OAM RAM access [0xFE00, 0xFEA0) -> []
     fn mem_get(&self, addr: u16) -> u8 {
-        let mut mref = self.mem.lock().unwrap();
+        let mref = self.mem.lock().unwrap();
         (*mref).get(addr, MemClient::PPU)
     }
 

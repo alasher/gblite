@@ -1,6 +1,3 @@
-#![feature(nll)]
-#![feature(duration_as_u128)] 
-
 extern crate num;
 extern crate ctrlc;
 extern crate sdl2;
@@ -44,7 +41,7 @@ fn main() {
 
     let ppu = ppu::PPU::new(mem.clone());
     let mut z80 = cpu::CPU::new(mem.clone(), ppu);
-    let mut cnt = 0;
+    // let mut cnt = 0;
 
     // Now, run instructions *literally* forever!
     loop {
@@ -54,7 +51,7 @@ fn main() {
         }
 
         if !z80.tick() { break; }
-        cnt += 1;
+        // cnt += 1;
 
         // if cfg!(debug_assertions) {
         //     if (cnt % 1000) == 0 {

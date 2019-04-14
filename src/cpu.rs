@@ -83,11 +83,13 @@ impl CPU {
         }
     }
 
+    // Lock the memory object and return byte at the given memory address.
     fn mem_get(&self, addr: u16) -> u8 {
-        let mut mref = self.mem.lock().unwrap();
+        let mref = self.mem.lock().unwrap();
         (*mref).get(addr, MemClient::CPU)
     }
 
+    // Lock the memory object and set byte at the given memory address with the given value.
     fn mem_set(&mut self, val: u8, addr: u16) {
         let mut mref = self.mem.lock().unwrap();
         (*mref).set(val, addr, MemClient::CPU);
@@ -114,6 +116,7 @@ impl CPU {
         self.regs.set(dst, stack_val);
     }
 
+    // Call the value at address if flag value is set, or unset.
     fn call_flag(&mut self, flag: Flag, if_unset: bool, addr: u16) {
         let flag_val = match flag {
             Flag::Z | Flag::CY => self.regs.get_flag(flag),
@@ -125,13 +128,13 @@ impl CPU {
         }
     }
 
-    // Push next_addr to stack, and jump to the jump_addr
+    // Push PC to stack, and jump to the jump_addr.
     fn call(&mut self, jump_addr: u16) {
         self.push(Reg16::PC);
         self.regs.set(Reg16::PC, jump_addr);
     }
 
-    // Call ret if flag matches
+    // Execute a return if given flag is set, or unset.
     fn ret_flag(&mut self, flag: Flag, if_unset: bool) {
         let flag_val = match flag {
             Flag::Z | Flag::CY => self.regs.get_flag(flag),
@@ -153,8 +156,9 @@ impl CPU {
 
     // Copy from given register into the memory address pointed to by given Reg16
     fn set_reg_ptr(&mut self, dst: Reg16, src: Reg8) {
-        let val = self.regs.get(src);
-        self.mem_set(val, self.regs.get(dst));
+        let addr = self.regs.get(src);
+        let val = self.regs.get(dst);
+        self.mem_set(addr, val);
     }
 
     // Copy value from (HL) into given register.
@@ -178,15 +182,19 @@ impl CPU {
         }
     }
 
+    // Load fast-page (0xFF00+) value to reg, or push reg value to a fast-page.
     fn ld_fast_page(&mut self, is_get: bool) {
         let addr = 0xff00 + self.regs.get(Reg8::C) as u16;
         if is_get {
-            self.regs.set(Reg8::A, self.mem_get(addr));
+            let val = self.mem_get(addr);
+            self.regs.set(Reg8::A, val);
         } else {
-            self.mem_set(self.regs.get(Reg8::A), addr);
+            let val = self.regs.get(Reg8::A);
+            self.mem_set(val, addr);
         }
     }
 
+    // Write the stack pointer address to memory (two bytes).
     fn write_sp_to_ptr(&mut self, addr: u16) {
         let split_addr = util::split_u16(self.regs.get(Reg16::SP));
         self.mem_set(split_addr.0, addr);
@@ -443,7 +451,7 @@ impl CPU {
         if !self.regs.get_flag(Flag::N) {
             if self.regs.get_flag(Flag::CY) || hi > 0x9 || lo > 0x9 {
                 adjust += 0x60;
-            } 
+            }
             if self.regs.get_flag(Flag::H) || lo > 0x9 {
                 adjust += 0x6;
             }
@@ -586,7 +594,7 @@ impl CPU {
             0x33 => self.regs.add(Reg16::HL, 1),
             0x34 => self.hl_ptr_inc_dec(true),
             0x35 => self.hl_ptr_inc_dec(false),
-            0x36 => self.mem_set(_operand8, self.regs.get(Reg16::HL)),
+            0x36 => {let hl = self.regs.get(Reg16::HL); self.mem_set(_operand8, hl)},
             0x37 => self.regs.set_flag(Flag::CY, true),
             0x38 => self.jump_relative_flag(Flag::CY, false, _operand8),
             0x39 => self.add_hl(lookup::get_flags(opcode), Reg16::SP),
@@ -762,7 +770,7 @@ impl CPU {
             0xdd => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xde => self.arith_imm(AluOp::Sub(true), Reg8::A, lookup::get_flags(opcode), _operand8),
             0xdf => self.call(0x18),
-            0xe0 => self.mem_set(self.regs.get(Reg8::A), 0xff00 + (_operand8 as u16)),
+            0xe0 => {let a = self.regs.get(Reg8::A); self.mem_set(a, 0xff00 + (_operand8 as u16))},
             0xe1 => self.pop(Reg16::HL),
             0xe2 => self.ld_fast_page(true),
             0xe3 => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
@@ -772,13 +780,13 @@ impl CPU {
             0xe7 => self.call(0x20),
             0xe8 => self.add_sp_signed(lookup::get_flags(opcode), Reg16::SP, _operand8 as i8),
             0xe9 => self.jump_hl_ptr(),
-            0xea => self.mem_set(self.regs.get(Reg8::A), _operand16),
+            0xea => {let a = self.regs.get(Reg8::A); self.mem_set(a, _operand16)},
             0xeb => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xec => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xed => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xee => self.arith_imm(AluOp::Xor, Reg8::A, lookup::get_flags(opcode), _operand8),
             0xef => self.call(0x28),
-            0xf0 => self.regs.set(Reg8::A, self.mem_get(0xff00 + (_operand8 as u16))),
+            0xf0 => {let val = self.mem_get(0xff00 + (_operand8 as u16)); self.regs.set(Reg8::A, val)},
             0xf1 => self.pop(Reg16::AF),
             0xf2 => self.ld_fast_page(false),
             0xf3 => self.ir_enabled = false,
@@ -788,7 +796,7 @@ impl CPU {
             0xf7 => self.call(0x30),
             0xf8 => self.add_sp_signed(lookup::get_flags(opcode), Reg16::HL, _operand8 as i8),
             0xf9 => self.regs.copy(Reg16::SP, Reg16::HL),
-            0xfa => self.regs.set(Reg8::A, self.mem_get(_operand16)),
+            0xfa => {let val = self.mem_get(_operand16); self.regs.set(Reg8::A, val)},
             0xfb => self.ir_enabled = true,
             0xfc => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xfd => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
