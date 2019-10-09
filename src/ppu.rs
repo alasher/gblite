@@ -151,15 +151,17 @@ impl PPU {
         // This can probably be lowered once I know more about the CGB.
         let mut pixels = Vec::new();
         for w in 0..self.width {
-            let pcolor = (w as f32 * 255f32 / self.width as f32) as u8;
+            let start_nums = (61.0,  74.0, 130.0);
+            let end_nums   = (72.0, 210.0, 219.0);
+            let pratio = (w as f32) / (self.width as f32);
             for h in 0..self.height {
-                pixels.push(pcolor);
-                pixels.push(pcolor);
-                pixels.push(pcolor);
+                pixels.push((start_nums.0 + pratio*(end_nums.0 - start_nums.0)) as u8);
+                pixels.push((start_nums.1 + pratio*(end_nums.1 - start_nums.1)) as u8);
+                pixels.push((start_nums.2 + pratio*(end_nums.2 - start_nums.2)) as u8);
             }
         }
 
-        self.lcd.draw(&pixels);
+        self.lcd.draw(&pixels[..]);
 
         // Print framerate info if debugging is enabled
         let now = Instant::now();
