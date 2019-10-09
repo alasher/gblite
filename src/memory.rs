@@ -72,25 +72,47 @@ impl Memory {
     }
 
     // For debug use only: do a hex dump of the contents of our ROM cartridge.
-    pub fn dump_rom(&self) {
+    fn generate_dump(&self, is_rom: bool) -> String {
+        let mut dump = String::new();
         let row_len = 32;
-        for (i, byte) in self.rom.iter().enumerate() {
+        let mem_src = if is_rom { &self.rom } else { &self.mem };
 
-            // TODO: Pad the address by log16 of the maximum address we need to print
+        for (i, byte) in mem_src.iter().enumerate() {
             if i % row_len == 0 {
-                print!("0x{:04x}:  ", i);
+                dump = format!("{}0x{:04x}:  ", dump, i);
             }
 
-            print!("{:02x}", byte);
+            dump = format!("{}{:02x}", dump, byte);
 
             if (i+1) % 32 == 0 {
-                println!("");
+                dump = format!("{}\n", dump);
             } else {
-                print!(" ");
+                dump = format!("{} ", dump);
             }
         }
 
-        println!("ROM size is {} bytes", self.rom.len());
+        dump
     }
 
+    pub fn dump_rom_to_file(&self, file_name: &str) {
+        println!("Dumping to file \"{}\"...", file_name);
+        let mem_dump = self.generate_dump(true);
+        fs::write(file_name, mem_dump);
+    }
+
+    pub fn dump_rom(&self) {
+        let mem_dump = self.generate_dump(true);
+        print!("{}", mem_dump);
+    }
+
+    pub fn dump_to_file(&self, file_name: &str) {
+        println!("Dumping to file \"{}\"...", file_name);
+        let mem_dump = self.generate_dump(false);
+        fs::write(file_name, mem_dump);
+    }
+
+    pub fn dump(&self) {
+        let mem_dump = self.generate_dump(false);
+        print!("{}", mem_dump);
+    }
 }
