@@ -11,7 +11,8 @@ pub struct Window {
     canvas: render::Canvas<video::Window>,
     width: u32,
     height: u32,
-    open: bool
+    event_cnt: u32,
+    open: bool,
 }
 
 impl Window {
@@ -31,7 +32,8 @@ impl Window {
             canvas: can,
             width: w,
             height: h,
-            open: true
+            event_cnt: 0,
+            open: true,
         }
     }
 
@@ -47,6 +49,13 @@ impl Window {
     }
 
     pub fn get_events(&mut self) {
+        self.event_cnt += 1;
+        if self.event_cnt < 250 {
+            return;
+        } else {
+            self.event_cnt = 0;
+        }
+
         let mut events = self.sdl.event_pump().unwrap();
         for event in events.poll_iter() {
             match event {
