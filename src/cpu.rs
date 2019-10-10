@@ -523,9 +523,6 @@ impl CPU {
         // Increment PC before we process the instruction. During execution the current PC will
         // represent the next instruction to process.
         let mut bytes = inst.bytes as u16;
-        if inst.prefix_cb {
-            bytes += 1; // TODO: Fix this in the lookup table
-        }
         self.regs.set(Reg16::PC, old_pc + bytes);
 
         match opcode {
