@@ -2162,7 +2162,7 @@ pub fn get_instruction(opcode: u16) -> Instruction {
         0xee => Instruction {
             opcode: 0xee,
             prefix_cb: false,
-            name: String::from("OR d8"),
+            name: String::from("XOR d8"),
             bytes: 2,
             clocks: 8,
             clocks_extra: 0,
