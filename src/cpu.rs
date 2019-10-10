@@ -528,16 +528,6 @@ impl CPU {
         }
         self.regs.set(Reg16::PC, old_pc + bytes);
 
-        // Print info about this instruction. Leaving this on all the time until the software
-        // matures a little.
-        // self.print_instruction_info(&inst, old_pc);
-
-        if self.breaks.contains(&old_pc) || self.step {
-            self.step = false;
-            self.regs.print_registers();
-            self.handle_breakpoint(old_pc);
-        }
-
         match opcode {
             // [0x00, 0x3f] - Load, INC/DEC, some jumps, and other various instructions.
             0x00 => (),
@@ -1074,12 +1064,23 @@ impl CPU {
             }
         }
 
+        // Print info about this instruction. Leaving this on all the time until the software
+        // matures a little.
+        self.print_instruction_info(&inst, old_pc);
+
+        // Print register info if we have a breakpoint.
+        if self.breaks.contains(&old_pc) || self.step {
+            self.step = false;
+            self.regs.print_registers();
+            self.handle_breakpoint(old_pc);
+        }
+
         !self.quit
     }
 
     fn print_instruction_info(&self, inst: &Instruction, old_pc: u16) {
         let mut pstr = format!("0x{:04x}: {} - {} cycles", old_pc, inst.name, inst.clocks);
-        if inst.bytes > 1 {
+        if inst.bytes > 1 && !inst.prefix_cb {
             pstr += " - operands: ";
             for i in 1..inst.bytes {
                 pstr += &format!("0x{:02x} ", self.mem_get(old_pc + i as u16));

@@ -167,7 +167,7 @@ impl PPU {
         let now = Instant::now();
         let frame_time = now.duration_since(self.last_frame);
         self.last_frame = now;
-        println!("Render time for this frame: {} ms, or {} fps.", frame_time.as_millis(), 1.0 / (frame_time.as_millis() as u32) as f32 * 1000.0);
+        // println!("Render time for this frame: {} ms, or {} fps.", frame_time.as_millis(), 1.0 / (frame_time.as_millis() as u32) as f32 * 1000.0);
     }
 
     fn stop(&mut self) {
