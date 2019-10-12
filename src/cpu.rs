@@ -201,13 +201,19 @@ impl CPU {
         self.mem_set(split_addr.1, addr+1);
     }
 
-    // Increment/decrement for (HL) value. TODO: should this be done another way? Maybe implement
-    // it as a Reg8::HL_PTR, or something special in ALU?
-    fn hl_ptr_inc_dec(&mut self, is_add: bool) {
+    // Increment/decrement for (HL) value.
+    // TODO: We need some massive overhaul to handle (HL) properly. ALU functions should be more
+    // generic. All function calls for the (HL) register should be the same as any other 8-bit reg.
+    fn hl_ptr_inc_dec(&mut self, flags: FlagStatus) {
+        let op = match flags.n {
+            FlagMod::Set(false) => AluOp::Add(false),
+            _ => AluOp::Sub(false)
+        };
         let addr = self.regs.get(Reg16::HL);
-        let val = self.mem_get(addr);
-        let val = if is_add { val + 1 } else { val - 1};
-        self.mem_set(val, addr);
+        let operand_a = self.mem_get(addr);
+        let result = self.alu(op, operand_a, 1);
+        self.mem_set(result, addr);
+        self.evaluate_flags(flags);
     }
 
     // Jump to the given address if Z or CY match what we expect
@@ -428,6 +434,8 @@ impl CPU {
         self.evaluate_flag(Flag::CY, flags.cy);
     }
 
+    // Given the flag state for this instruction from the lookup table, modify the flags
+    // appropriately based on the current state.
     fn evaluate_flag(&mut self, flag: Flag, modifier: FlagMod) {
         match modifier {
             FlagMod::Ignore => (),
@@ -531,64 +539,64 @@ impl CPU {
             0x01 => self.regs.set(Reg16::BC, _operand16),
             0x02 => self.set_reg_ptr(Reg16::BC, Reg8::A),
             0x03 => self.regs.add(Reg16::BC, 1),
-            0x04 => self.regs.add(Reg8::B, 1),
-            0x05 => self.regs.sub(Reg8::B, 1),
+            0x04 => self.arith_imm(AluOp::Add(false), Reg8::B, lookup::get_flags(opcode), 1),
+            0x05 => self.arith_imm(AluOp::Sub(false), Reg8::B, lookup::get_flags(opcode), 1),
             0x06 => self.regs.set(Reg8::B, _operand8),
             0x07 => self.arith_imm(AluOp::RotateLeft(true), Reg8::A, lookup::get_flags(opcode), 0),
             0x08 => self.write_sp_to_ptr(_operand16),
             0x09 => self.add_hl(lookup::get_flags(opcode), Reg16::BC),
             0x0a => self.get_reg_ptr(Reg8::A, Reg16::BC),
             0x0b => self.regs.sub(Reg16::BC, 1),
-            0x0c => self.regs.add(Reg8::C, 1),
-            0x0d => self.regs.sub(Reg8::C, 1),
+            0x0c => self.arith_imm(AluOp::Add(false), Reg8::C, lookup::get_flags(opcode), 1),
+            0x0d => self.arith_imm(AluOp::Sub(false), Reg8::C, lookup::get_flags(opcode), 1),
             0x0e => self.regs.set(Reg8::C, _operand8),
             0x0f => self.arith_imm(AluOp::RotateRight(true), Reg8::A, lookup::get_flags(opcode), 0),
             0x10 => self.stop(),
             0x11 => self.regs.set(Reg16::DE, _operand16),
             0x12 => self.set_reg_ptr(Reg16::DE, Reg8::A),
             0x13 => self.regs.add(Reg16::DE, 1),
-            0x14 => self.regs.add(Reg8::D, 1),
-            0x15 => self.regs.sub(Reg8::D, 1),
+            0x14 => self.arith_imm(AluOp::Add(false), Reg8::D, lookup::get_flags(opcode), 1),
+            0x15 => self.arith_imm(AluOp::Sub(false), Reg8::D, lookup::get_flags(opcode), 1),
             0x16 => self.regs.set(Reg8::D, _operand8),
             0x17 => self.arith_imm(AluOp::RotateLeft(false), Reg8::A, lookup::get_flags(opcode), 0),
             0x18 => self.jump_relative(_operand8),
             0x19 => self.add_hl(lookup::get_flags(opcode), Reg16::DE),
             0x1a => self.get_reg_ptr(Reg8::A, Reg16::DE),
             0x1b => self.regs.sub(Reg16::BC, 1),
-            0x1c => self.regs.add(Reg8::D, 1),
-            0x1d => self.regs.sub(Reg8::D, 1),
+            0x1c => self.arith_imm(AluOp::Add(false), Reg8::E, lookup::get_flags(opcode), 1),
+            0x1d => self.arith_imm(AluOp::Sub(false), Reg8::E, lookup::get_flags(opcode), 1),
             0x1e => self.regs.set(Reg8::E, _operand8),
             0x1f => self.arith_imm(AluOp::RotateRight(false), Reg8::A, lookup::get_flags(opcode), 0),
             0x20 => self.jump_relative_flag(Flag::Z, true, _operand8),
             0x21 => self.regs.set(Reg16::HL, _operand16),
             0x22 => self.ldd_special(true, true),
             0x23 => self.regs.add(Reg16::HL, 1),
-            0x24 => self.regs.add(Reg8::H, 1),
-            0x25 => self.regs.sub(Reg8::H, 1),
+            0x24 => self.arith_imm(AluOp::Add(false), Reg8::H, lookup::get_flags(opcode), 1),
+            0x25 => self.arith_imm(AluOp::Sub(false), Reg8::H, lookup::get_flags(opcode), 1),
             0x26 => self.regs.set(Reg8::H, _operand8),
             0x27 => self.decimal_adjust(lookup::get_flags(opcode)),
             0x28 => self.jump_relative_flag(Flag::Z, false, _operand8),
             0x29 => self.add_hl(lookup::get_flags(opcode), Reg16::HL),
             0x2a => self.ldd_special(false, true),
             0x2b => self.regs.sub(Reg16::HL, 1),
-            0x2c => self.regs.add(Reg8::L, 1),
-            0x2d => self.regs.sub(Reg8::L, 1),
+            0x2c => self.arith_imm(AluOp::Add(false), Reg8::L, lookup::get_flags(opcode), 1),
+            0x2d => self.arith_imm(AluOp::Sub(false), Reg8::L, lookup::get_flags(opcode), 1),
             0x2e => self.regs.set(Reg8::L, _operand8),
             0x2f => self.arith_imm(AluOp::Xor, Reg8::A, lookup::get_flags(opcode), 0xff),
             0x30 => self.jump_relative_flag(Flag::CY, true, _operand8),
             0x31 => self.regs.set(Reg16::SP, _operand16),
             0x32 => self.ldd_special(true, false),
             0x33 => self.regs.add(Reg16::HL, 1),
-            0x34 => self.hl_ptr_inc_dec(true),
-            0x35 => self.hl_ptr_inc_dec(false),
+            0x34 => self.hl_ptr_inc_dec(lookup::get_flags(opcode)),
+            0x35 => self.hl_ptr_inc_dec(lookup::get_flags(opcode)),
             0x36 => {let hl = self.regs.get(Reg16::HL); self.mem_set(_operand8, hl)},
             0x37 => self.regs.set_flag(Flag::CY, true),
             0x38 => self.jump_relative_flag(Flag::CY, false, _operand8),
             0x39 => self.add_hl(lookup::get_flags(opcode), Reg16::SP),
             0x3a => self.ldd_special(false, false),
             0x3b => self.regs.sub(Reg16::SP, 1),
-            0x3c => self.regs.add(Reg8::A, 1),
-            0x3d => self.regs.sub(Reg8::A, 1),
+            0x3c => self.arith_imm(AluOp::Add(false), Reg8::A, lookup::get_flags(opcode), 1),
+            0x3d => self.arith_imm(AluOp::Sub(false), Reg8::A, lookup::get_flags(opcode), 1),
             0x3e => self.regs.set(Reg8::A, _operand8),
             0x3f => self.toggle_cy(),
 

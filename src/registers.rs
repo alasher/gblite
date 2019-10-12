@@ -161,6 +161,11 @@ impl RegisterCache {
         self.de.print_contents();
         print!("HL: ");
         self.hl.print_contents();
+        println!("Flags: Z: {}, N: {}, H: {}, CY: {}",
+                 self.get_flag(Flag::Z),
+                 self.get_flag(Flag::N),
+                 self.get_flag(Flag::H),
+                 self.get_flag(Flag::CY));
         println!("PC: 0x{:04x}, SP: 0x{:04x}", self.pc, self.sp);
     }
 }
