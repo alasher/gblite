@@ -8,6 +8,7 @@ use memory::MemClient;
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
+use std::collections::HashMap;
 
 #[derive(Copy, Clone, PartialEq)]
 enum PPUState {
@@ -19,7 +20,7 @@ enum PPUState {
     Draw         // Draw is the lookup and transfer period of pixels to the LCD.
 }
 
-#[derive(Copy, Clone, PartialEq)]
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 enum PPUReg {
     LCDC = 0xFF40,
     STAT = 0xFF41,
@@ -36,14 +37,9 @@ enum PPUReg {
     VBK  = 0xFF4F
 }
 
-pub struct PPU {
-    lcd: Window,             // The actual graphics window, not to be confused with a Game Boy window map/tile.
-    state: PPUState,         // Current PPU state, non-off is STAT[0:1], OFF is controlled by LCDC bit 7.
-    mem: Arc<Mutex<Memory>>, // Reference to our Memory object.
-    last_frame: Instant,     // Timestamp of last frame rendered, to calculate framerate.
-    width: u32,              // Width of the virtual window, fixed at 160.
-    height: u32,             // Height of the virtual window, fixed at 144.
-    lclk: u32,               // The machine cycle for this line, from [0, 113].
+struct PPUConfig {
+    cache: HashMap<PPUReg, u8>,
+    dirty: HashMap<PPUReg, bool>,
     bgr_map_off: u16,        // Offset to BG Map start address in VRAM, adjustble by LCDC bit 3.
     win_map_off: u16,        // Offset to Window map start address in VRAM, adjustable by LCDC bit 6.
     bgr_dat_off: u16,        // Offset to BG/Window data start address in VRAM, adjustable by LCDC bit 4.
@@ -53,26 +49,86 @@ pub struct PPU {
     tall_objs: bool          // If false, an 8x8 OBJ is used. Otherwise, an 8x16 OBJ is used.
 }
 
+#[derive(Copy, Clone, PartialEq)]
+struct PPUDebug {
+    enabled:    bool,        // True if debug logging is enabled
+    last_frame: Instant,     // Timestamp of last frame rendered, to calculate framerate.
+}
+
+pub struct PPU {
+    lcd: Window,             // The actual graphics window, not to be confused with a Game Boy window map/tile.
+    state: PPUState,         // Current PPU state, non-off is STAT[0:1], OFF is controlled by LCDC bit 7.
+    mem: Arc<Mutex<Memory>>, // Reference to our Memory object.
+    cfg: PPUConfig,          // Struct containing all PPU register config values
+    dbg: PPUDebug,           // Struct containing debug information and statistics
+    width: u32,              // Width of the virtual window, fixed at 160.
+    height: u32,             // Height of the virtual window, fixed at 144.
+    lclk: u32,               // The machine cycle for this line, from [0, 113].
+}
+
 impl PPU {
     pub fn new(mem: Arc<Mutex<Memory>>) -> Self {
         let (w, h) = (160, 144);
         let lcd = Window::new(w, h);
 
+        let cache: HashMap<PPUReg, u8> = [
+            (PPUReg::LCDC, 0),
+            (PPUReg::STAT, 0),
+            (PPUReg::SCY,  0),
+            (PPUReg::SCX,  0),
+            (PPUReg::LY,   0),
+            (PPUReg::LYC,  0),
+            (PPUReg::DMA,  0),
+            (PPUReg::BGP,  0),
+            (PPUReg::OBP0, 0),
+            (PPUReg::OBP1, 0),
+            (PPUReg::WY,   0),
+            (PPUReg::WX,   0),
+            (PPUReg::VBK,  0),
+        ].iter().cloned().collect();
+
+        let dirty: HashMap<PPUReg, bool> = [
+            (PPUReg::LCDC, true),
+            (PPUReg::STAT, true),
+            (PPUReg::SCY,  true),
+            (PPUReg::SCX,  true),
+            (PPUReg::LY,   true),
+            (PPUReg::LYC,  true),
+            (PPUReg::DMA,  true),
+            (PPUReg::BGP,  true),
+            (PPUReg::OBP0, true),
+            (PPUReg::OBP1, true),
+            (PPUReg::WY,   true),
+            (PPUReg::WX,   true),
+            (PPUReg::VBK,  true),
+        ].iter().cloned().collect();
+
+        let cfg = PPUConfig {
+            cache: cache,
+            dirty: dirty,
+            bgr_map_off: 0,
+            win_map_off: 0,
+            bgr_dat_off: 0,
+            win_en: false,
+            obj_en: false,
+            bgr_en: false,
+            tall_objs: false,
+        };
+
+        let dbg = PPUDebug {
+            enabled: false,
+            last_frame: Instant::now(),
+        };
+
         let mut ppu = PPU {
             lcd: lcd,
             state: PPUState::Off,
             mem: mem,
-            last_frame: Instant::now(),
+            cfg: cfg,
+            dbg: dbg,
             width: w,
             height: h,
             lclk: 0,
-            bgr_map_off: 0,
-            win_map_off: 0,
-            bgr_dat_off: 0,
-            win_en:    false,
-            obj_en:    false,
-            bgr_en:    false,
-            tall_objs: false
         };
 
         // Initialize PPU config registers
@@ -80,6 +136,7 @@ impl PPU {
         ppu.reg_set(PPUReg::BGP, 0xFC);
         ppu.reg_set(PPUReg::OBP0, 0xFF);
         ppu.reg_set(PPUReg::OBP1, 0xFF);
+        ppu.pull_registers();
 
         ppu
     }
@@ -87,6 +144,15 @@ impl PPU {
     // Tick performs the appropriate PPU action for this machine cycle.
     // TODO: Adjust cycle accuracy of Draw state, timings can vary slightly.
     pub fn tick(&mut self) {
+
+        /*
+         * PPU clock cycle overview
+         * 1. Check for window events
+         * 2. Pull PPU CFG registers and modify settings accordingly
+         * 3. Determine the current PPUState
+         * 4. Do the appropriate work for this state
+         * 5. Flush register changes
+         */
 
         // Check window events and for register changes
         self.check_events();
@@ -154,7 +220,7 @@ impl PPU {
             let start_nums = (61.0,  74.0, 130.0);
             let end_nums   = (72.0, 210.0, 219.0);
             let pratio = (w as f32) / (self.width as f32);
-            for h in 0..self.height {
+            for _h in 0..self.height {
                 pixels.push((start_nums.0 + pratio*(end_nums.0 - start_nums.0)) as u8);
                 pixels.push((start_nums.1 + pratio*(end_nums.1 - start_nums.1)) as u8);
                 pixels.push((start_nums.2 + pratio*(end_nums.2 - start_nums.2)) as u8);
@@ -163,11 +229,12 @@ impl PPU {
 
         self.lcd.draw(&pixels[..]);
 
-        // Print framerate info if debugging is enabled
-        let now = Instant::now();
-        let frame_time = now.duration_since(self.last_frame);
-        self.last_frame = now;
-        // println!("Render time for this frame: {} ms, or {} fps.", frame_time.as_millis(), 1.0 / (frame_time.as_millis() as u32) as f32 * 1000.0);
+        if (self.dbg.enabled) {
+            let now = Instant::now();
+            let frame_time = now.duration_since(self.dbg.last_frame);
+            self.dbg.last_frame = now;
+            println!("Render time for this frame: {} ms, or {} fps.", frame_time.as_millis(), 1.0 / (frame_time.as_millis() as u32) as f32 * 1000.0);
+        }
     }
 
     fn stop(&mut self) {
@@ -199,6 +266,12 @@ impl PPU {
             return;
         }
 
+        self.pull_registers();
+    }
+
+    // Check for register changes, and apply the corresponding settings differences.
+    fn pull_registers(&mut self) {
+
         // Check LCDC for status changes.
         let lcdc = self.reg_get(PPUReg::LCDC);
         let lcdc_on = (lcdc & 0x80) != 0;
@@ -207,13 +280,14 @@ impl PPU {
         } else if !lcdc_on && self.is_rendering() {
             self.stop();
         }
-        self.win_map_off = if (lcdc & 0x40) != 0 { 0x9800 } else { 0x9C00 };
-        self.bgr_dat_off = if (lcdc & 0x10) != 0 { 0x8800 } else { 0x8000 };
-        self.bgr_map_off = if (lcdc & 0x08) != 0 { 0x9800 } else { 0x9C00 };
-        self.win_en = (lcdc & 0x20) != 0;
-        self.obj_en = (lcdc & 0x02) != 0;
-        self.bgr_en = (lcdc & 0x01) != 0;
-        self.tall_objs = (lcdc & 0x04) != 0;
+        self.cfg.win_map_off = if (lcdc & 0x40) != 0 { 0x9800 } else { 0x9C00 };
+        self.cfg.bgr_dat_off = if (lcdc & 0x10) != 0 { 0x8800 } else { 0x8000 };
+        self.cfg.bgr_map_off = if (lcdc & 0x08) != 0 { 0x9800 } else { 0x9C00 };
+        self.cfg.win_en = (lcdc & 0x20) != 0;
+        self.cfg.obj_en = (lcdc & 0x02) != 0;
+        self.cfg.bgr_en = (lcdc & 0x01) != 0;
+        self.cfg.tall_objs = (lcdc & 0x04) != 0;
+
     }
 
     fn reg_get(&self, reg: PPUReg) -> u8 {
