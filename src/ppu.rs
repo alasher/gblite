@@ -37,6 +37,27 @@ enum PPUReg {
     VBK  = 0xFF4F
 }
 
+enum PPURegField {
+    LCDC_ENABLE,
+    LCDC_WIN_MAP_POS,
+    LCDC_WIN_ENABLE,
+    LCDC_BG_WIN_DATA_POS,
+    LCDC_BG_MAP_POS,
+    LCDC_OBJ_SIZE,
+    LCDC_OBJ_ENABLE,
+    LCDC_OBJ_WIN_PRIO,
+    STAT_COINC_INT,
+    STAT_OAM_INT,
+    STAT_VBLANK_INT,
+    STAT_HBLANK_INT,
+    STAT_COINCIDENCE,
+    STAT_MODE,
+    BGP_SHADE_COLOR3,
+    BGP_SHADE_COLOR2,
+    BGP_SHADE_COLOR1,
+    BGP_SHADE_COLOR0,
+}
+
 struct PPUConfig {
     cache: HashMap<PPUReg, u8>,
     dirty: HashMap<PPUReg, bool>,
@@ -153,6 +174,10 @@ impl PPU {
          * 4. Do the appropriate work for this state
          * 5. Flush register changes
          */
+
+        // We want to make it so we can write self.some_field_from_register within the PPU code,
+        // then after we're done we know to generate the appropriate register value for that
+        // changed value and update it.
 
         // Check window events and for register changes
         self.check_events();
@@ -288,6 +313,54 @@ impl PPU {
         self.cfg.bgr_en = (lcdc & 0x01) != 0;
         self.cfg.tall_objs = (lcdc & 0x04) != 0;
 
+    }
+
+    fn reg_field_parent(&self, field: PPURegField) -> Option<PPUReg> {
+        match (field) {
+            PPURegField::LCDC_ENABLE            => Some(PPUReg::LCDC),
+            PPURegField::LCDC_WIN_MAP_POS       => Some(PPUReg::LCDC),
+            PPURegField::LCDC_WIN_ENABLE        => Some(PPUReg::LCDC),
+            PPURegField::LCDC_BG_WIN_DATA_POS   => Some(PPUReg::LCDC),
+            PPURegField::LCDC_BG_MAP_POS        => Some(PPUReg::LCDC),
+            PPURegField::LCDC_OBJ_SIZE          => Some(PPUReg::LCDC),
+            PPURegField::LCDC_OBJ_ENABLE        => Some(PPUReg::LCDC),
+            PPURegField::LCDC_OBJ_WIN_PRIO      => Some(PPUReg::LCDC),
+            PPURegField::STAT_COINC_INT         => Some(PPUReg::STAT),
+            PPURegField::STAT_OAM_INT           => Some(PPUReg::STAT),
+            PPURegField::STAT_VBLANK_INT        => Some(PPUReg::STAT),
+            PPURegField::STAT_HBLANK_INT        => Some(PPUReg::STAT),
+            PPURegField::STAT_COINCIDENCE       => Some(PPUReg::STAT),
+            PPURegField::STAT_MODE              => Some(PPUReg::STAT),
+            PPURegField::BGP_SHADE_COLOR3       => Some(PPUReg::BGP),
+            PPURegField::BGP_SHADE_COLOR2       => Some(PPUReg::BGP),
+            PPURegField::BGP_SHADE_COLOR1       => Some(PPUReg::BGP),
+            PPURegField::BGP_SHADE_COLOR0       => Some(PPUReg::BGP),
+            _ => None,
+        }
+    }
+
+    fn reg_field_offset_size(&self, field: PPURegField) -> (u8, u8) {
+        match (field) {
+            PPURegField::LCDC_ENABLE            => (7, 1),
+            PPURegField::LCDC_WIN_MAP_POS       => (6, 1),
+            PPURegField::LCDC_WIN_ENABLE        => (5, 1),
+            PPURegField::LCDC_BG_WIN_DATA_POS   => (4, 1),
+            PPURegField::LCDC_BG_MAP_POS        => (3, 1),
+            PPURegField::LCDC_OBJ_SIZE          => (2, 1),
+            PPURegField::LCDC_OBJ_ENABLE        => (1, 1),
+            PPURegField::LCDC_OBJ_WIN_PRIO      => (0, 1),
+            PPURegField::STAT_COINC_INT         => (6, 1),
+            PPURegField::STAT_OAM_INT           => (5, 1),
+            PPURegField::STAT_VBLANK_INT        => (4, 1),
+            PPURegField::STAT_HBLANK_INT        => (3, 1),
+            PPURegField::STAT_COINCIDENCE       => (2, 1),
+            PPURegField::STAT_MODE              => (0, 2),
+            PPURegField::BGP_SHADE_COLOR3       => (6, 2),
+            PPURegField::BGP_SHADE_COLOR2       => (4, 2),
+            PPURegField::BGP_SHADE_COLOR1       => (2, 2),
+            PPURegField::BGP_SHADE_COLOR0       => (0, 2),
+            _ => (0, 8),
+        }
     }
 
     fn reg_get(&self, reg: PPUReg) -> u8 {
