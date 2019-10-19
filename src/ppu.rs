@@ -5,6 +5,7 @@ use window::Window;
 use memory::Memory;
 use memory::MemClient;
 
+use std::fmt::{Display, Formatter, Result};
 use std::sync::Arc;
 use std::sync::Mutex;
 use std::time::Instant;
@@ -56,6 +57,27 @@ enum PPURegField {
     BGP_SHADE_COLOR2,
     BGP_SHADE_COLOR1,
     BGP_SHADE_COLOR0,
+}
+
+impl Display for PPUReg {
+    fn fmt(&self, f: &mut Formatter) -> Result {
+        match *self {
+            PPUReg::LCDC => write!(f, "LCDC"),
+            PPUReg::STAT => write!(f, "STAT"),
+            PPUReg::SCY  => write!(f, "SCY"),
+            PPUReg::SCX  => write!(f, "SCX"),
+            PPUReg::LY   => write!(f, "LY"),
+            PPUReg::LYC  => write!(f, "LYC"),
+            PPUReg::DMA  => write!(f, "DMA"),
+            PPUReg::BGP  => write!(f, "BGP"),
+            PPUReg::OBP0 => write!(f, "OBP0"),
+            PPUReg::OBP1 => write!(f, "OBP1"),
+            PPUReg::WY   => write!(f, "WY"),
+            PPUReg::WX   => write!(f, "WX"),
+            PPUReg::VBK  => write!(f, "VBK"),
+            _            => write!(f, "UNKNOWN"),
+        }
+    }
 }
 
 struct PPUConfig {
@@ -153,11 +175,12 @@ impl PPU {
         };
 
         // Initialize PPU config registers
+        ppu.pull_registers();
         ppu.reg_set(PPUReg::LCDC, 0x91);
         ppu.reg_set(PPUReg::BGP, 0xFC);
         ppu.reg_set(PPUReg::OBP0, 0xFF);
         ppu.reg_set(PPUReg::OBP1, 0xFF);
-        ppu.pull_registers();
+        ppu.push_registers();
 
         ppu
     }
@@ -180,6 +203,7 @@ impl PPU {
         // changed value and update it.
 
         // Check window events and for register changes
+        self.pull_registers();
         self.check_events();
 
         let ly = self.reg_get(PPUReg::LY);
@@ -227,6 +251,8 @@ impl PPU {
                 self.lclk += 1;
             }
         }
+
+        self.push_registers();
     }
 
     // Start and stop are not public, they must be activated by LCDC.
@@ -291,12 +317,6 @@ impl PPU {
             return;
         }
 
-        self.pull_registers();
-    }
-
-    // Check for register changes, and apply the corresponding settings differences.
-    fn pull_registers(&mut self) {
-
         // Check LCDC for status changes.
         let lcdc = self.reg_get(PPUReg::LCDC);
         let lcdc_on = (lcdc & 0x80) != 0;
@@ -305,14 +325,25 @@ impl PPU {
         } else if !lcdc_on && self.is_rendering() {
             self.stop();
         }
-        self.cfg.win_map_off = if (lcdc & 0x40) != 0 { 0x9800 } else { 0x9C00 };
-        self.cfg.bgr_dat_off = if (lcdc & 0x10) != 0 { 0x8800 } else { 0x8000 };
-        self.cfg.bgr_map_off = if (lcdc & 0x08) != 0 { 0x9800 } else { 0x9C00 };
-        self.cfg.win_en = (lcdc & 0x20) != 0;
-        self.cfg.obj_en = (lcdc & 0x02) != 0;
-        self.cfg.bgr_en = (lcdc & 0x01) != 0;
-        self.cfg.tall_objs = (lcdc & 0x04) != 0;
+    }
 
+    // Check for register changes, and apply the corresponding settings differences.
+    fn pull_registers(&mut self) {
+        // Collect the values before writing to prevent borrowing issues.
+        let reg_vals: Vec<(PPUReg, u8)> = self.cfg.cache.keys().map(|&r| (r.clone(), self.mem_get(r as u16))).collect();
+        for (reg, val) in reg_vals {
+            self.reg_set(reg, val);
+            self.cfg.dirty.insert(reg, false);
+        }
+    }
+
+    // Flush register changes to memory
+    fn push_registers(&mut self) {
+        let dirty_regs: Vec<(&PPUReg, &u8)> = self.cfg.cache.iter().filter(|&(r, d)| self.cfg.dirty.get(r) == Some(&true)).collect();
+        let dirty_regs: Vec<(PPUReg, u8)> = dirty_regs.iter().map(|&(r, d)| (r.clone(), d.clone())).collect();
+        for (reg, val) in dirty_regs {
+            self.mem_set(reg as u16, val);
+        }
     }
 
     fn reg_field_parent(&self, field: PPURegField) -> Option<PPUReg> {
@@ -364,13 +395,25 @@ impl PPU {
     }
 
     fn reg_get(&self, reg: PPUReg) -> u8 {
-        let val = self.mem_get(reg as u16);
+        let val = match self.cfg.cache.get(&reg) {
+            Some(val) => val.clone(),
+            None      => {
+                panic!("No config register cache entry writable for this PPU register!");
+            }
+        };
 
         val
     }
 
     fn reg_set(&mut self, reg: PPUReg, val: u8) {
-        self.mem_set(reg as u16, val);
+        let old_val = match self.cfg.cache.insert(reg, val) {
+            Some(v) => v.clone(),
+            None    => {
+                panic!("Config register cache entry didn't exist for this PPU register!");
+            }
+        };
+
+        self.cfg.dirty.insert(reg, (old_val != val));
     }
 
     // VRAM data access, given absolute memory address
