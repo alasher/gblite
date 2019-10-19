@@ -530,8 +530,7 @@ impl CPU {
 
         // Increment PC before we process the instruction. During execution the current PC will
         // represent the next instruction to process.
-        let mut bytes = inst.bytes as u16;
-        self.regs.set(Reg16::PC, old_pc + bytes);
+        self.regs.set(Reg16::PC, old_pc + (inst.bytes as u16));
 
         match opcode {
             // [0x00, 0x3f] - Load, INC/DEC, some jumps, and other various instructions.

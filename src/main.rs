@@ -78,7 +78,10 @@ fn main() {
         let fname = format!("gblite_mem_{}_{:02}_{:02}_{}.log", dt.year(), dt.month(), dt.day(),
                             dt.num_seconds_from_midnight());
         let mref = mem.lock().unwrap();
-        (*mref).dump_to_file(&fname);
+        match (*mref).dump_to_file(&fname) {
+            Ok(_r) => (),
+            Err(e) => panic!("Error dumping memory: {}", e),
+        }
     }
 
     thread::sleep(time::Duration::from_millis(100));

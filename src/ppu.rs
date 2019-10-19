@@ -23,59 +23,59 @@ enum PPUState {
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 enum PPUReg {
-    LCDC = 0xFF40,
-    STAT = 0xFF41,
-    SCY  = 0xFF42,
-    SCX  = 0xFF43,
-    LY   = 0xFF44,
-    LYC  = 0xFF45,
-    DMA  = 0xFF46,
-    BGP  = 0xFF47,
-    OBP0 = 0xFF48,
-    OBP1 = 0xFF49,
-    WY   = 0xFF4A,
-    WX   = 0xFF4B,
-    VBK  = 0xFF4F
+    Lcdc = 0xFF40,
+    Stat = 0xFF41,
+    Scy  = 0xFF42,
+    Scx  = 0xFF43,
+    Ly   = 0xFF44,
+    Lyc  = 0xFF45,
+    Dma  = 0xFF46,
+    Bgp  = 0xFF47,
+    Obp0 = 0xFF48,
+    Obp1 = 0xFF49,
+    Wy   = 0xFF4A,
+    Wx   = 0xFF4B,
+    Vbk  = 0xFF4F
 }
 
+#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
 enum PPURegField {
-    LCDC_ENABLE,
-    LCDC_WIN_MAP_POS,
-    LCDC_WIN_ENABLE,
-    LCDC_BG_WIN_DATA_POS,
-    LCDC_BG_MAP_POS,
-    LCDC_OBJ_SIZE,
-    LCDC_OBJ_ENABLE,
-    LCDC_OBJ_WIN_PRIO,
-    STAT_COINC_INT,
-    STAT_OAM_INT,
-    STAT_VBLANK_INT,
-    STAT_HBLANK_INT,
-    STAT_COINCIDENCE,
-    STAT_MODE,
-    BGP_SHADE_COLOR3,
-    BGP_SHADE_COLOR2,
-    BGP_SHADE_COLOR1,
-    BGP_SHADE_COLOR0,
+    LcdcEnable,
+    LcdcWinMapPos,
+    LcdcWinEnableLE,
+    LcdcBgWinDataPos,
+    LcdcBgMapPos,
+    LcdcObjSize,
+    LcdcObjEnable,
+    LcdcObjWinPrio,
+    StatCoincInt,
+    StatOamInt,
+    StatVblankInt,
+    StatHblankInt,
+    StatCoincidence,
+    StatMode,
+    BgpShadeColor3,
+    BgpShadeColor2,
+    BgpShadeColor1,
+    BgpShadeColor0,
 }
 
 impl Display for PPUReg {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match *self {
-            PPUReg::LCDC => write!(f, "LCDC"),
-            PPUReg::STAT => write!(f, "STAT"),
-            PPUReg::SCY  => write!(f, "SCY"),
-            PPUReg::SCX  => write!(f, "SCX"),
-            PPUReg::LY   => write!(f, "LY"),
-            PPUReg::LYC  => write!(f, "LYC"),
-            PPUReg::DMA  => write!(f, "DMA"),
-            PPUReg::BGP  => write!(f, "BGP"),
-            PPUReg::OBP0 => write!(f, "OBP0"),
-            PPUReg::OBP1 => write!(f, "OBP1"),
-            PPUReg::WY   => write!(f, "WY"),
-            PPUReg::WX   => write!(f, "WX"),
-            PPUReg::VBK  => write!(f, "VBK"),
-            _            => write!(f, "UNKNOWN"),
+            PPUReg::Lcdc => write!(f, "LCDC"),
+            PPUReg::Stat => write!(f, "STAT"),
+            PPUReg::Scy  => write!(f, "SCY"),
+            PPUReg::Scx  => write!(f, "SCX"),
+            PPUReg::Ly   => write!(f, "LY"),
+            PPUReg::Lyc  => write!(f, "LYC"),
+            PPUReg::Dma  => write!(f, "DMA"),
+            PPUReg::Bgp  => write!(f, "BGP"),
+            PPUReg::Obp0 => write!(f, "OBP0"),
+            PPUReg::Obp1 => write!(f, "OBP1"),
+            PPUReg::Wy   => write!(f, "WY"),
+            PPUReg::Wx   => write!(f, "WX"),
+            PPUReg::Vbk  => write!(f, "VBK"),
         }
     }
 }
@@ -83,13 +83,13 @@ impl Display for PPUReg {
 struct PPUConfig {
     cache: HashMap<PPUReg, u8>,
     dirty: HashMap<PPUReg, bool>,
-    bgr_map_off: u16,        // Offset to BG Map start address in VRAM, adjustble by LCDC bit 3.
-    win_map_off: u16,        // Offset to Window map start address in VRAM, adjustable by LCDC bit 6.
-    bgr_dat_off: u16,        // Offset to BG/Window data start address in VRAM, adjustable by LCDC bit 4.
-    win_en: bool,            // True if window is enabled. Note this window is drawn, it's not about the SDL window.
-    obj_en: bool,            // True if sprites (or OBJs) are enabled.
-    bgr_en: bool,            // True if background rendering enabled. Always enabled on CGB.
-    tall_objs: bool          // If false, an 8x8 OBJ is used. Otherwise, an 8x16 OBJ is used.
+    _bgr_map_off: u16,        // Offset to BG Map start address in VRAM, adjustble by LCDC bit 3.
+    _win_map_off: u16,        // Offset to Window map start address in VRAM, adjustable by LCDC bit 6.
+    _bgr_dat_off: u16,        // Offset to BG/Window data start address in VRAM, adjustable by LCDC bit 4.
+    _win_en: bool,            // True if window is enabled. Note this window is drawn, it's not about the SDL window.
+    _obj_en: bool,            // True if sprites (or OBJs) are enabled.
+    _bgr_en: bool,            // True if background rendering enabled. Always enabled on CGB.
+    _tall_objs: bool          // If false, an 8x8 OBJ is used. Otherwise, an 8x16 OBJ is used.
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -115,47 +115,47 @@ impl PPU {
         let lcd = Window::new(w, h);
 
         let cache: HashMap<PPUReg, u8> = [
-            (PPUReg::LCDC, 0),
-            (PPUReg::STAT, 0),
-            (PPUReg::SCY,  0),
-            (PPUReg::SCX,  0),
-            (PPUReg::LY,   0),
-            (PPUReg::LYC,  0),
-            (PPUReg::DMA,  0),
-            (PPUReg::BGP,  0),
-            (PPUReg::OBP0, 0),
-            (PPUReg::OBP1, 0),
-            (PPUReg::WY,   0),
-            (PPUReg::WX,   0),
-            (PPUReg::VBK,  0),
+            (PPUReg::Lcdc, 0),
+            (PPUReg::Stat, 0),
+            (PPUReg::Scy,  0),
+            (PPUReg::Scx,  0),
+            (PPUReg::Ly,   0),
+            (PPUReg::Lyc,  0),
+            (PPUReg::Dma,  0),
+            (PPUReg::Bgp,  0),
+            (PPUReg::Obp0, 0),
+            (PPUReg::Obp1, 0),
+            (PPUReg::Wy,   0),
+            (PPUReg::Wx,   0),
+            (PPUReg::Vbk,  0),
         ].iter().cloned().collect();
 
         let dirty: HashMap<PPUReg, bool> = [
-            (PPUReg::LCDC, true),
-            (PPUReg::STAT, true),
-            (PPUReg::SCY,  true),
-            (PPUReg::SCX,  true),
-            (PPUReg::LY,   true),
-            (PPUReg::LYC,  true),
-            (PPUReg::DMA,  true),
-            (PPUReg::BGP,  true),
-            (PPUReg::OBP0, true),
-            (PPUReg::OBP1, true),
-            (PPUReg::WY,   true),
-            (PPUReg::WX,   true),
-            (PPUReg::VBK,  true),
+            (PPUReg::Lcdc, true),
+            (PPUReg::Stat, true),
+            (PPUReg::Scy,  true),
+            (PPUReg::Scx,  true),
+            (PPUReg::Ly,   true),
+            (PPUReg::Lyc,  true),
+            (PPUReg::Dma,  true),
+            (PPUReg::Bgp,  true),
+            (PPUReg::Obp0, true),
+            (PPUReg::Obp1, true),
+            (PPUReg::Wy,   true),
+            (PPUReg::Wx,   true),
+            (PPUReg::Vbk,  true),
         ].iter().cloned().collect();
 
         let cfg = PPUConfig {
             cache: cache,
             dirty: dirty,
-            bgr_map_off: 0,
-            win_map_off: 0,
-            bgr_dat_off: 0,
-            win_en: false,
-            obj_en: false,
-            bgr_en: false,
-            tall_objs: false,
+            _bgr_map_off: 0,
+            _win_map_off: 0,
+            _bgr_dat_off: 0,
+            _win_en: false,
+            _obj_en: false,
+            _bgr_en: false,
+            _tall_objs: false,
         };
 
         let dbg = PPUDebug {
@@ -176,10 +176,10 @@ impl PPU {
 
         // Initialize PPU config registers
         ppu.pull_registers();
-        ppu.reg_set(PPUReg::LCDC, 0x91);
-        ppu.reg_set(PPUReg::BGP, 0xFC);
-        ppu.reg_set(PPUReg::OBP0, 0xFF);
-        ppu.reg_set(PPUReg::OBP1, 0xFF);
+        ppu.reg_set(PPUReg::Lcdc, 0x91);
+        ppu.reg_set(PPUReg::Bgp, 0xFC);
+        ppu.reg_set(PPUReg::Obp0, 0xFF);
+        ppu.reg_set(PPUReg::Obp1, 0xFF);
         ppu.push_registers();
 
         ppu
@@ -206,7 +206,7 @@ impl PPU {
         self.pull_registers();
         self.check_events();
 
-        let ly = self.reg_get(PPUReg::LY);
+        let mut ly = self.reg_get(PPUReg::Ly);
 
         match self.state {
             PPUState::Quit => (),
@@ -219,7 +219,7 @@ impl PPU {
                     } else {
                         self.state = PPUState::Draw;
                     }
-                    self.reg_set(PPUReg::LY, ly+1);
+                    ly += 1;
                     self.lclk = 0;
                 } else {
                     self.lclk += 1;
@@ -229,9 +229,10 @@ impl PPU {
                 if self.lclk == 113 {
                     if ly == 153 {
                         self.state = PPUState::OAMSearch;
-                        self.reg_set(PPUReg::LY, 0);
+                        self.reg_set(PPUReg::Ly, 0);
+                        ly = 0;
                     } else {
-                        self.reg_set(PPUReg::LY, ly+1);
+                        ly += 1;
                     }
                     self.lclk = 0;
                 } else {
@@ -252,6 +253,8 @@ impl PPU {
             }
         }
 
+        self.reg_set(PPUReg::Ly, ly);
+
         self.push_registers();
     }
 
@@ -259,7 +262,7 @@ impl PPU {
     fn start(&mut self) {
         self.state = PPUState::OAMSearch;
         self.lclk = 0;
-        self.reg_set(PPUReg::LY, 0);
+        self.reg_set(PPUReg::Ly, 0);
         self.render();
     }
 
@@ -280,7 +283,7 @@ impl PPU {
 
         self.lcd.draw(&pixels[..]);
 
-        if (self.dbg.enabled) {
+        if self.dbg.enabled {
             let now = Instant::now();
             let frame_time = now.duration_since(self.dbg.last_frame);
             self.dbg.last_frame = now;
@@ -318,8 +321,7 @@ impl PPU {
         }
 
         // Check LCDC for status changes.
-        let lcdc = self.reg_get(PPUReg::LCDC);
-        let lcdc_on = (lcdc & 0x80) != 0;
+        let lcdc_on = self.reg_field_get_bool(PPURegField::LcdcEnable);
         if lcdc_on && !self.is_rendering() {
             self.start();
         } else if !lcdc_on && self.is_rendering() {
@@ -339,58 +341,56 @@ impl PPU {
 
     // Flush register changes to memory
     fn push_registers(&mut self) {
-        let dirty_regs: Vec<(&PPUReg, &u8)> = self.cfg.cache.iter().filter(|&(r, d)| self.cfg.dirty.get(r) == Some(&true)).collect();
+        let dirty_regs: Vec<(&PPUReg, &u8)> = self.cfg.cache.iter().filter(|&(r, _d)| self.cfg.dirty.get(r) == Some(&true)).collect();
         let dirty_regs: Vec<(PPUReg, u8)> = dirty_regs.iter().map(|&(r, d)| (r.clone(), d.clone())).collect();
         for (reg, val) in dirty_regs {
             self.mem_set(reg as u16, val);
         }
     }
 
-    fn reg_field_parent(&self, field: PPURegField) -> Option<PPUReg> {
-        match (field) {
-            PPURegField::LCDC_ENABLE            => Some(PPUReg::LCDC),
-            PPURegField::LCDC_WIN_MAP_POS       => Some(PPUReg::LCDC),
-            PPURegField::LCDC_WIN_ENABLE        => Some(PPUReg::LCDC),
-            PPURegField::LCDC_BG_WIN_DATA_POS   => Some(PPUReg::LCDC),
-            PPURegField::LCDC_BG_MAP_POS        => Some(PPUReg::LCDC),
-            PPURegField::LCDC_OBJ_SIZE          => Some(PPUReg::LCDC),
-            PPURegField::LCDC_OBJ_ENABLE        => Some(PPUReg::LCDC),
-            PPURegField::LCDC_OBJ_WIN_PRIO      => Some(PPUReg::LCDC),
-            PPURegField::STAT_COINC_INT         => Some(PPUReg::STAT),
-            PPURegField::STAT_OAM_INT           => Some(PPUReg::STAT),
-            PPURegField::STAT_VBLANK_INT        => Some(PPUReg::STAT),
-            PPURegField::STAT_HBLANK_INT        => Some(PPUReg::STAT),
-            PPURegField::STAT_COINCIDENCE       => Some(PPUReg::STAT),
-            PPURegField::STAT_MODE              => Some(PPUReg::STAT),
-            PPURegField::BGP_SHADE_COLOR3       => Some(PPUReg::BGP),
-            PPURegField::BGP_SHADE_COLOR2       => Some(PPUReg::BGP),
-            PPURegField::BGP_SHADE_COLOR1       => Some(PPUReg::BGP),
-            PPURegField::BGP_SHADE_COLOR0       => Some(PPUReg::BGP),
-            _ => None,
+    fn reg_field_parent(&self, field: PPURegField) -> PPUReg {
+        match field {
+            PPURegField::LcdcEnable        => PPUReg::Lcdc,
+            PPURegField::LcdcWinMapPos     => PPUReg::Lcdc,
+            PPURegField::LcdcWinEnableLE   => PPUReg::Lcdc,
+            PPURegField::LcdcBgWinDataPos  => PPUReg::Lcdc,
+            PPURegField::LcdcBgMapPos      => PPUReg::Lcdc,
+            PPURegField::LcdcObjSize       => PPUReg::Lcdc,
+            PPURegField::LcdcObjEnable     => PPUReg::Lcdc,
+            PPURegField::LcdcObjWinPrio    => PPUReg::Lcdc,
+            PPURegField::StatCoincInt      => PPUReg::Stat,
+            PPURegField::StatOamInt        => PPUReg::Stat,
+            PPURegField::StatVblankInt     => PPUReg::Stat,
+            PPURegField::StatHblankInt     => PPUReg::Stat,
+            PPURegField::StatCoincidence   => PPUReg::Stat,
+            PPURegField::StatMode          => PPUReg::Stat,
+            PPURegField::BgpShadeColor3    => PPUReg::Bgp,
+            PPURegField::BgpShadeColor2    => PPUReg::Bgp,
+            PPURegField::BgpShadeColor1    => PPUReg::Bgp,
+            PPURegField::BgpShadeColor0    => PPUReg::Bgp,
         }
     }
 
     fn reg_field_offset_size(&self, field: PPURegField) -> (u8, u8) {
-        match (field) {
-            PPURegField::LCDC_ENABLE            => (7, 1),
-            PPURegField::LCDC_WIN_MAP_POS       => (6, 1),
-            PPURegField::LCDC_WIN_ENABLE        => (5, 1),
-            PPURegField::LCDC_BG_WIN_DATA_POS   => (4, 1),
-            PPURegField::LCDC_BG_MAP_POS        => (3, 1),
-            PPURegField::LCDC_OBJ_SIZE          => (2, 1),
-            PPURegField::LCDC_OBJ_ENABLE        => (1, 1),
-            PPURegField::LCDC_OBJ_WIN_PRIO      => (0, 1),
-            PPURegField::STAT_COINC_INT         => (6, 1),
-            PPURegField::STAT_OAM_INT           => (5, 1),
-            PPURegField::STAT_VBLANK_INT        => (4, 1),
-            PPURegField::STAT_HBLANK_INT        => (3, 1),
-            PPURegField::STAT_COINCIDENCE       => (2, 1),
-            PPURegField::STAT_MODE              => (0, 2),
-            PPURegField::BGP_SHADE_COLOR3       => (6, 2),
-            PPURegField::BGP_SHADE_COLOR2       => (4, 2),
-            PPURegField::BGP_SHADE_COLOR1       => (2, 2),
-            PPURegField::BGP_SHADE_COLOR0       => (0, 2),
-            _ => (0, 8),
+        match field {
+            PPURegField::LcdcEnable         => (7, 1),
+            PPURegField::LcdcWinMapPos      => (6, 1),
+            PPURegField::LcdcWinEnableLE    => (5, 1),
+            PPURegField::LcdcBgWinDataPos   => (4, 1),
+            PPURegField::LcdcBgMapPos       => (3, 1),
+            PPURegField::LcdcObjSize        => (2, 1),
+            PPURegField::LcdcObjEnable      => (1, 1),
+            PPURegField::LcdcObjWinPrio     => (0, 1),
+            PPURegField::StatCoincInt       => (6, 1),
+            PPURegField::StatOamInt         => (5, 1),
+            PPURegField::StatVblankInt      => (4, 1),
+            PPURegField::StatHblankInt      => (3, 1),
+            PPURegField::StatCoincidence    => (2, 1),
+            PPURegField::StatMode           => (0, 2),
+            PPURegField::BgpShadeColor3     => (6, 2),
+            PPURegField::BgpShadeColor2     => (4, 2),
+            PPURegField::BgpShadeColor1     => (2, 2),
+            PPURegField::BgpShadeColor0     => (0, 2),
         }
     }
 
@@ -413,7 +413,21 @@ impl PPU {
             }
         };
 
-        self.cfg.dirty.insert(reg, (old_val != val));
+        self.cfg.dirty.insert(reg, old_val != val);
+    }
+
+    fn reg_field_get(&self, field: PPURegField) -> u8 {
+        let parent = self.reg_field_parent(field);
+        let base = self.reg_get(parent);
+        let (offset, size) = self.reg_field_offset_size(field);
+        let mask = (1 << size+1) - 1;
+        (base >> offset) & mask
+    }
+
+    // I'd like to use generics for this, but it gave me trouble...
+    // From<u8> doesn't exist for bool, and compiler wont let me add it myself.
+    fn reg_field_get_bool(&self, field: PPURegField) -> bool {
+        self.reg_field_get(field) != 0
     }
 
     // VRAM data access, given absolute memory address

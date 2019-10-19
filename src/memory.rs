@@ -1,6 +1,7 @@
 #![allow(dead_code)]
 
 use std::fs;
+use std::io;
 
 pub struct Memory {
     mem:  Vec<u8>,
@@ -23,7 +24,7 @@ impl Memory {
     }
 
     // TODO: Implement ROM switching and interfaces for different memory bank controllers.
-    pub fn get(&self, addr: u16, client: MemClient) -> u8 {
+    pub fn get(&self, addr: u16, _client: MemClient) -> u8 {
         let a = addr as usize;
         if a < 0x100 {
             if self.bootrom_enabled() {
@@ -41,7 +42,7 @@ impl Memory {
         }
     }
 
-    pub fn set(&mut self, val: u8, addr: u16, client: MemClient) {
+    pub fn set(&mut self, val: u8, addr: u16, _client: MemClient) {
         if addr >= 0xFF00 && addr <= 0xFF7F {
             // println!("[MEM] Setting I/O Register 0x{:04X} = 0x{:02X}", addr, val);
         }
@@ -94,10 +95,11 @@ impl Memory {
         dump
     }
 
-    pub fn dump_rom_to_file(&self, file_name: &str) {
+    pub fn dump_rom_to_file(&self, file_name: &str) -> io::Result<()> {
         println!("Dumping to file \"{}\"...", file_name);
         let mem_dump = self.generate_dump(true);
-        fs::write(file_name, mem_dump);
+        fs::write(file_name, mem_dump)?;
+        Ok(())
     }
 
     pub fn dump_rom(&self) {
@@ -105,10 +107,11 @@ impl Memory {
         print!("{}", mem_dump);
     }
 
-    pub fn dump_to_file(&self, file_name: &str) {
+    pub fn dump_to_file(&self, file_name: &str) -> io::Result<()> {
         println!("Dumping to file \"{}\"...", file_name);
         let mem_dump = self.generate_dump(false);
-        fs::write(file_name, mem_dump);
+        fs::write(file_name, mem_dump)?;
+        Ok(())
     }
 
     pub fn dump(&self) {
