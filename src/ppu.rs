@@ -38,28 +38,6 @@ enum PPUReg {
     Vbk  = 0xFF4F
 }
 
-#[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-enum PPURegField {
-    LcdcEnable,
-    LcdcWinMapPos,
-    LcdcWinEnableLE,
-    LcdcBgWinDataPos,
-    LcdcBgMapPos,
-    LcdcObjSize,
-    LcdcObjEnable,
-    LcdcObjWinPrio,
-    StatCoincInt,
-    StatOamInt,
-    StatVblankInt,
-    StatHblankInt,
-    StatCoincidence,
-    StatMode,
-    BgpShadeColor3,
-    BgpShadeColor2,
-    BgpShadeColor1,
-    BgpShadeColor0,
-}
-
 impl Display for PPUReg {
     fn fmt(&self, f: &mut Formatter) -> Result {
         match *self {
@@ -83,13 +61,26 @@ impl Display for PPUReg {
 struct PPUConfig {
     cache: HashMap<PPUReg, u8>,
     dirty: HashMap<PPUReg, bool>,
-    _bgr_map_off: u16,        // Offset to BG Map start address in VRAM, adjustble by LCDC bit 3.
-    _win_map_off: u16,        // Offset to Window map start address in VRAM, adjustable by LCDC bit 6.
-    _bgr_dat_off: u16,        // Offset to BG/Window data start address in VRAM, adjustable by LCDC bit 4.
-    _win_en: bool,            // True if window is enabled. Note this window is drawn, it's not about the SDL window.
-    _obj_en: bool,            // True if sprites (or OBJs) are enabled.
-    _bgr_en: bool,            // True if background rendering enabled. Always enabled on CGB.
-    _tall_objs: bool          // If false, an 8x8 OBJ is used. Otherwise, an 8x16 OBJ is used.
+    lcd_enabled: bool,       // LCDC bit 7 - Enables the LCD
+    win_map_high_bank: bool, // LCDC bit 6 - Changes window map start address to high bank
+    win_en: bool,            // LCDC bit 5 - Enables window rendering
+    bg_data_low_bank: bool,  // LCDC bit 4 - Changes BG/Window data start address to low bank
+    bg_map_high_bank: bool,  // LCDC bit 3 - Changes BG map start address to high bank
+    tall_objs: bool,         // LCDC bit 2 - Enables tall sprites
+    obj_en: bool,            // LCDC bit 1 - Enables sprite rendering
+    bg_priority: bool,       // LCDC bit 0 - Forces BG pixels to highest priority (over OBJs)
+    stat: u8,
+    scy: u8,
+    scx: u8,
+    ly:  u8,
+    lyc: u8,
+    dma: u8,
+    bgp: u8,
+    obp0: u8,
+    obp1: u8,
+    wy: u8,
+    wx: u8,
+    vbk: u8,
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -149,13 +140,26 @@ impl PPU {
         let cfg = PPUConfig {
             cache: cache,
             dirty: dirty,
-            _bgr_map_off: 0,
-            _win_map_off: 0,
-            _bgr_dat_off: 0,
-            _win_en: false,
-            _obj_en: false,
-            _bgr_en: false,
-            _tall_objs: false,
+            lcd_enabled: true,         // LCDC bit 7
+            win_map_high_bank: false,  // LCDC bit 6
+            win_en: false,             // LCDC bit 5
+            bg_data_low_bank: true,    // LCDC bit 4
+            bg_map_high_bank: false,   // LCDC bit 3
+            tall_objs: false,          // LCDC bit 2
+            obj_en: false,             // LCDC bit 1
+            bg_priority: true,         // LCDC bit 0
+            stat: 0,
+            scy: 0,
+            scx: 0,
+            ly: 0,
+            lyc: 0,
+            dma: 0,
+            bgp: 0xfc,
+            obp0: 0xff,
+            obp1: 0xff,
+            wy: 0,
+            wx: 0,
+            vbk: 0,
         };
 
         let dbg = PPUDebug {
@@ -175,11 +179,6 @@ impl PPU {
         };
 
         // Initialize PPU config registers
-        ppu.pull_registers();
-        ppu.reg_set(PPUReg::Lcdc, 0x91);
-        ppu.reg_set(PPUReg::Bgp, 0xFC);
-        ppu.reg_set(PPUReg::Obp0, 0xFF);
-        ppu.reg_set(PPUReg::Obp1, 0xFF);
         ppu.push_registers();
 
         ppu
@@ -191,35 +190,29 @@ impl PPU {
 
         /*
          * PPU clock cycle overview
-         * 1. Check for window events
-         * 2. Pull PPU CFG registers and modify settings accordingly
+         * 1. Pull PPU CFG registers and modify settings accordingly
+         * 2. Check for window events
          * 3. Determine the current PPUState
          * 4. Do the appropriate work for this state
          * 5. Flush register changes
          */
 
-        // We want to make it so we can write self.some_field_from_register within the PPU code,
-        // then after we're done we know to generate the appropriate register value for that
-        // changed value and update it.
-
         // Check window events and for register changes
         self.pull_registers();
         self.check_events();
-
-        let mut ly = self.reg_get(PPUReg::Ly);
 
         match self.state {
             PPUState::Quit => (),
             PPUState::Off => (),
             PPUState::HBlank => {
                 if self.lclk == 113 {
-                    if ly == 143 {
+                    if self.cfg.ly == 143 {
                         self.state = PPUState::VBlank;
                         self.render();
                     } else {
                         self.state = PPUState::Draw;
                     }
-                    ly += 1;
+                    self.cfg.ly += 1;
                     self.lclk = 0;
                 } else {
                     self.lclk += 1;
@@ -227,12 +220,12 @@ impl PPU {
             },
             PPUState::VBlank => {
                 if self.lclk == 113 {
-                    if ly == 153 {
+                    if self.cfg.ly == 153 {
                         self.state = PPUState::OAMSearch;
                         self.reg_set(PPUReg::Ly, 0);
-                        ly = 0;
+                        self.cfg.ly = 0;
                     } else {
-                        ly += 1;
+                        self.cfg.ly += 1;
                     }
                     self.lclk = 0;
                 } else {
@@ -252,8 +245,6 @@ impl PPU {
                 self.lclk += 1;
             }
         }
-
-        self.reg_set(PPUReg::Ly, ly);
 
         self.push_registers();
     }
@@ -291,6 +282,11 @@ impl PPU {
         }
     }
 
+    // Right now, just get the whole scanline at one time.
+    // TODO: In the future, I should probably make sure this is cycle-accurate
+    // fn get_pixels(&mut self) -> &[u8] {
+    // }
+
     fn stop(&mut self) {
         self.state = PPUState::Off;
     }
@@ -321,26 +317,31 @@ impl PPU {
         }
 
         // Check LCDC for status changes.
-        let lcdc_on = self.reg_field_get_bool(PPURegField::LcdcEnable);
-        if lcdc_on && !self.is_rendering() {
+        if self.cfg.lcd_enabled && !self.is_rendering() {
             self.start();
-        } else if !lcdc_on && self.is_rendering() {
+        } else if !self.cfg.lcd_enabled && self.is_rendering() {
             self.stop();
         }
     }
 
     // Check for register changes, and apply the corresponding settings differences.
+    // TODO: Some registers can't be changed halfway through a scanline, check for those here.
     fn pull_registers(&mut self) {
         // Collect the values before writing to prevent borrowing issues.
         let reg_vals: Vec<(PPUReg, u8)> = self.cfg.cache.keys().map(|&r| (r.clone(), self.mem_get(r as u16))).collect();
         for (reg, val) in reg_vals {
             self.reg_set(reg, val);
             self.cfg.dirty.insert(reg, false);
+            self.decode_reg_field(reg);
         }
     }
 
     // Flush register changes to memory
     fn push_registers(&mut self) {
+        let regs: Vec<PPUReg> = self.cfg.cache.keys().map(|&r| r.clone()).collect();
+        for reg in regs {
+            self.encode_reg_field(reg);
+        }
         let dirty_regs: Vec<(&PPUReg, &u8)> = self.cfg.cache.iter().filter(|&(r, _d)| self.cfg.dirty.get(r) == Some(&true)).collect();
         let dirty_regs: Vec<(PPUReg, u8)> = dirty_regs.iter().map(|&(r, d)| (r.clone(), d.clone())).collect();
         for (reg, val) in dirty_regs {
@@ -348,50 +349,72 @@ impl PPU {
         }
     }
 
-    fn reg_field_parent(&self, field: PPURegField) -> PPUReg {
-        match field {
-            PPURegField::LcdcEnable        => PPUReg::Lcdc,
-            PPURegField::LcdcWinMapPos     => PPUReg::Lcdc,
-            PPURegField::LcdcWinEnableLE   => PPUReg::Lcdc,
-            PPURegField::LcdcBgWinDataPos  => PPUReg::Lcdc,
-            PPURegField::LcdcBgMapPos      => PPUReg::Lcdc,
-            PPURegField::LcdcObjSize       => PPUReg::Lcdc,
-            PPURegField::LcdcObjEnable     => PPUReg::Lcdc,
-            PPURegField::LcdcObjWinPrio    => PPUReg::Lcdc,
-            PPURegField::StatCoincInt      => PPUReg::Stat,
-            PPURegField::StatOamInt        => PPUReg::Stat,
-            PPURegField::StatVblankInt     => PPUReg::Stat,
-            PPURegField::StatHblankInt     => PPUReg::Stat,
-            PPURegField::StatCoincidence   => PPUReg::Stat,
-            PPURegField::StatMode          => PPUReg::Stat,
-            PPURegField::BgpShadeColor3    => PPUReg::Bgp,
-            PPURegField::BgpShadeColor2    => PPUReg::Bgp,
-            PPURegField::BgpShadeColor1    => PPUReg::Bgp,
-            PPURegField::BgpShadeColor0    => PPUReg::Bgp,
+    // Extracts the data from a config register into a format that's easier for the PPU to use
+    fn decode_reg_field(&mut self, reg: PPUReg) {
+        let val = self.reg_get(reg);
+
+        match reg {
+            PPUReg::Lcdc => {
+                self.cfg.lcd_enabled         = (val & 0x80) != 0;
+                self.cfg.win_map_high_bank   = (val & 0x40) != 0;
+                self.cfg.win_en              = (val & 0x20) != 0;
+                self.cfg.bg_data_low_bank    = (val & 0x10) != 0;
+                self.cfg.bg_map_high_bank    = (val & 0x08) != 0;
+                self.cfg.tall_objs           = (val & 0x04) != 0;
+                self.cfg.obj_en              = (val & 0x02) != 0;
+                self.cfg.bg_priority         = (val & 0x01) != 0;
+            },
+            PPUReg::Stat => {
+                self.cfg.stat = val; // TODO: split this up
+            },
+            PPUReg::Bgp  => {
+                self.cfg.bgp  = val; // TODO: split this up
+            }
+            PPUReg::Scy  => self.cfg.scy  = val,
+            PPUReg::Scx  => self.cfg.scx  = val,
+            PPUReg::Ly   => self.cfg.ly   = val,
+            PPUReg::Lyc  => self.cfg.lyc  = val,
+            PPUReg::Dma  => self.cfg.dma  = val,
+            PPUReg::Obp0 => self.cfg.obp0 = val,
+            PPUReg::Obp1 => self.cfg.obp1 = val,
+            PPUReg::Wy   => self.cfg.wy   = val,
+            PPUReg::Wx   => self.cfg.wx   = val,
+            PPUReg::Vbk  => self.cfg.vbk  = val,
         }
     }
 
-    fn reg_field_offset_size(&self, field: PPURegField) -> (u8, u8) {
-        match field {
-            PPURegField::LcdcEnable         => (7, 1),
-            PPURegField::LcdcWinMapPos      => (6, 1),
-            PPURegField::LcdcWinEnableLE    => (5, 1),
-            PPURegField::LcdcBgWinDataPos   => (4, 1),
-            PPURegField::LcdcBgMapPos       => (3, 1),
-            PPURegField::LcdcObjSize        => (2, 1),
-            PPURegField::LcdcObjEnable      => (1, 1),
-            PPURegField::LcdcObjWinPrio     => (0, 1),
-            PPURegField::StatCoincInt       => (6, 1),
-            PPURegField::StatOamInt         => (5, 1),
-            PPURegField::StatVblankInt      => (4, 1),
-            PPURegField::StatHblankInt      => (3, 1),
-            PPURegField::StatCoincidence    => (2, 1),
-            PPURegField::StatMode           => (0, 2),
-            PPURegField::BgpShadeColor3     => (6, 2),
-            PPURegField::BgpShadeColor2     => (4, 2),
-            PPURegField::BgpShadeColor1     => (2, 2),
-            PPURegField::BgpShadeColor0     => (0, 2),
-        }
+    // Read the appropriate field values for this register and flush its value to memory
+    fn encode_reg_field(&mut self, reg: PPUReg) {
+        let val = match reg {
+            PPUReg::Lcdc => {
+                (if self.cfg.lcd_enabled        { 1 } else { 0 } << 7) |
+                (if self.cfg.win_map_high_bank  { 1 } else { 0 } << 6) |
+                (if self.cfg.win_en             { 1 } else { 0 } << 5) |
+                (if self.cfg.bg_data_low_bank   { 1 } else { 0 } << 4) |
+                (if self.cfg.bg_map_high_bank   { 1 } else { 0 } << 3) |
+                (if self.cfg.tall_objs          { 1 } else { 0 } << 2) |
+                (if self.cfg.obj_en             { 1 } else { 0 } << 1) |
+                (if self.cfg.bg_priority        { 1 } else { 0 } << 0)
+            },
+            PPUReg::Stat => {
+                self.cfg.stat //TODO: split this up
+            },
+            PPUReg::Bgp => {
+                self.cfg.bgp //TODO: split this up
+            },
+            PPUReg::Scy  => self.cfg.scy,
+            PPUReg::Scx  => self.cfg.scx,
+            PPUReg::Ly   => self.cfg.ly,
+            PPUReg::Lyc  => self.cfg.lyc,
+            PPUReg::Dma  => self.cfg.dma,
+            PPUReg::Obp0 => self.cfg.obp0,
+            PPUReg::Obp1 => self.cfg.obp1,
+            PPUReg::Wy   => self.cfg.wy,
+            PPUReg::Wx   => self.cfg.wx,
+            PPUReg::Vbk  => self.cfg.vbk,
+        };
+
+        self.reg_set(reg, val);
     }
 
     fn reg_get(&self, reg: PPUReg) -> u8 {
@@ -414,20 +437,6 @@ impl PPU {
         };
 
         self.cfg.dirty.insert(reg, old_val != val);
-    }
-
-    fn reg_field_get(&self, field: PPURegField) -> u8 {
-        let parent = self.reg_field_parent(field);
-        let base = self.reg_get(parent);
-        let (offset, size) = self.reg_field_offset_size(field);
-        let mask = (1 << size+1) - 1;
-        (base >> offset) & mask
-    }
-
-    // I'd like to use generics for this, but it gave me trouble...
-    // From<u8> doesn't exist for bool, and compiler wont let me add it myself.
-    fn reg_field_get_bool(&self, field: PPURegField) -> bool {
-        self.reg_field_get(field) != 0
     }
 
     // VRAM data access, given absolute memory address
