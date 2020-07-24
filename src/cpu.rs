@@ -81,7 +81,7 @@ impl CPU {
             half_carry: false,
             full_carry: false,
             step: false,
-            breaks: HashSet::new(),
+            breaks: rcfg.breakpoints.clone(),
             verbose: rcfg.verbose,
         }
     }
