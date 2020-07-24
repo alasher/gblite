@@ -100,8 +100,8 @@ pub struct PPU {
 
 impl PPU {
     pub fn new(mem: Arc<Mutex<Memory>>) -> Self {
-        let (w, h) = (160, 144);
-        let lcd = Window::new(w, h);
+        let (w, h) = (160u8, 144u8);
+        let lcd = Window::new(w.into(), h.into());
 
         let regs: Vec<PPUReg> = [
             PPUReg::Lcdc,
