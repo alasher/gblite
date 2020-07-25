@@ -7,6 +7,7 @@ use lookup::Instruction;
 use registers::*;
 use util;
 use lookup;
+use RuntimeConfig;
 
 use std::fmt;
 use std::io;
@@ -64,11 +65,12 @@ pub struct CPU {
     half_carry: bool,
     full_carry: bool,
     step: bool,
-    breaks: HashSet<u16>
+    breaks: HashSet<u16>,
+    verbose: bool,
 }
 
 impl CPU {
-    pub fn new(mem: Arc<Mutex<Memory>>, ppu: PPU) -> CPU {
+    pub fn new(mem: Arc<Mutex<Memory>>, ppu: PPU, rcfg: &RuntimeConfig) -> CPU {
         CPU {
             regs: RegisterCache::new(),
             mem: mem,
@@ -79,7 +81,8 @@ impl CPU {
             half_carry: false,
             full_carry: false,
             step: false,
-            breaks: HashSet::new()
+            breaks: rcfg.breakpoints.clone(),
+            verbose: rcfg.verbose,
         }
     }
 
@@ -1068,9 +1071,9 @@ impl CPU {
             }
         }
 
-        // Print info about this instruction. Leaving this on all the time until the software
-        // matures a little.
-        self.print_instruction_info(&inst, old_pc);
+        if self.verbose {
+            self.print_instruction_info(&inst, old_pc);
+        }
 
         // Print register info if we have a breakpoint.
         if self.breaks.contains(&old_pc) || self.step {

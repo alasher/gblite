@@ -14,31 +14,90 @@ mod lookup;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::collections::HashSet;
 use std::thread;
 use std::time;
 use std::fs;
 use chrono::{Utc, Datelike, Timelike};
 
-fn main() {
-    let args: Vec<String> = std::env::args().collect();
-    let fname: String = match args.get(args.len()-1) {
-        Some(v) => v.clone(),
-        None    => String::from("")
-    };
+pub struct RuntimeConfig {
+    rom_file: Option<String>,
+    breakpoints: HashSet<u16>,
+    dump_mem: bool,
+    verbose:  bool,
+}
 
-    let file_metadata = fs::metadata(&fname);
-    if  args.len() < 2 || !file_metadata.unwrap().is_file() {
-        println!("Error: Need to give DMG file as command line argument!");
-        println!("Option -d: Dump system memory to a log file upon termination.");
-        return;
-    } else {
-        println!("Opening ROM file: \"{}\"", fname);
+impl RuntimeConfig {
+    pub fn new() -> Self {
+        RuntimeConfig {
+            rom_file: None,
+            breakpoints: HashSet::new(),
+            dump_mem: false,
+            verbose:  false,
+        }
+    }
+}
+
+fn print_help_and_exit() {
+    println!("{} version v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
+    println!("Option -d: Dump system memory to a log file upon termination.");
+    println!("Option -b [address]: Break at the given PC address.");
+    println!("Option -v: Enable verbose instruction execution output.");
+    std::process::exit(1);
+}
+
+fn main() {
+    let mut cfg: RuntimeConfig = RuntimeConfig::new();
+    let mut arg_skip = 0;
+    let mut arg_id = 1;
+
+    for arg in std::env::args().skip(1) {
+        if arg_skip > 0 {
+            arg_skip -= 1;
+        } else {
+            match arg.as_str() {
+                "-d" => { cfg.dump_mem = true; },
+                "-b" => {
+                    arg_skip = 1;
+                    let addr_str = std::env::args().nth(arg_id+1).unwrap();
+                    let addr_str = addr_str.trim_start_matches("0x");
+                    match u16::from_str_radix(addr_str, 16) {
+                        Ok(addr) => {   println!("Parsed as: {}", addr);
+                                        cfg.breakpoints.insert(addr); },
+                        Err(e) => { println!("Error parsing breakpoint argument \"{}\": {}", addr_str, e); },
+                    }
+                },
+                "-v" => { cfg.verbose  = true; },
+                other => {
+                    if &other[0..1] != "-" {
+                        cfg.rom_file = Some(arg.clone());
+                    } else {
+                        eprintln!("Read invalid argument, {}\n", other);
+                        print_help_and_exit();
+                    }
+                },
+            }
+        }
+
+        arg_id += 1;
     }
 
-    // TODO: There's gotta be a cleaner way to read command line options
-    let dump_mem = match args.get(1) {
-        Some(v) => (v == "-d"),
-        None => false
+    let fname = match &cfg.rom_file {
+        Some(f) => f,
+        None => {
+            print_help_and_exit();
+            unreachable!();
+        }
+    };
+
+    match fs::metadata(&fname) {
+        Ok(meta) => {
+            if !meta.is_file() { print_help_and_exit(); }
+        },
+        Err(e) => {
+            eprintln!("Error reading file: {}\n", e);
+            print_help_and_exit();
+        }
     };
 
     // Register Ctrl-C handling
@@ -53,7 +112,7 @@ fn main() {
     let mem = Arc::new(Mutex::new(mem));
 
     let ppu = ppu::PPU::new(mem.clone());
-    let mut z80 = cpu::CPU::new(mem.clone(), ppu);
+    let mut z80 = cpu::CPU::new(mem.clone(), ppu, &cfg);
     // let mut cnt = 0;
 
     // Now, run instructions *literally* forever!
@@ -73,7 +132,7 @@ fn main() {
         // }
     }
 
-    if dump_mem {
+    if cfg.dump_mem {
         let dt = Utc::now();
         let fname = format!("gblite_mem_{}_{:02}_{:02}_{}.log", dt.year(), dt.month(), dt.day(),
                             dt.num_seconds_from_midnight());
