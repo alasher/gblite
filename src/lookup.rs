@@ -1,7 +1,7 @@
 #![allow(dead_code)]
 
-use registers::FlagMod;
-use registers::FlagStatus;
+use crate::registers::FlagMod;
+use crate::registers::FlagStatus;
 
 pub struct Instruction {
     pub opcode: u8,           // The byte opcode of this instruction.

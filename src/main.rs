@@ -1,8 +1,3 @@
-extern crate num;
-extern crate ctrlc;
-extern crate sdl2;
-extern crate chrono;
-
 mod registers;
 mod cpu;
 mod ppu;

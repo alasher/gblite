@@ -1,9 +1,9 @@
 // PPU abstracts the details of the PPU from the CPU. It's different from the Window struct because
 // the window abstracts platform-specific details related to operating the window.
 
-use window::Window;
-use memory::Memory;
-use memory::MemClient;
+use crate::window::Window;
+use crate::memory::Memory;
+use crate::memory::MemClient;
 
 use std::fmt::{Display, Formatter, Result};
 use std::sync::Arc;

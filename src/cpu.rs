@@ -1,13 +1,13 @@
 #![allow(dead_code)]
 
-use memory::Memory;
-use memory::MemClient;
-use ppu::PPU;
-use lookup::Instruction;
-use registers::*;
-use util;
-use lookup;
-use RuntimeConfig;
+use crate::memory::Memory;
+use crate::memory::MemClient;
+use crate::ppu::PPU;
+use crate::lookup::Instruction;
+use crate::registers::*;
+use crate::util;
+use crate::lookup;
+use crate::RuntimeConfig;
 
 use std::fmt;
 use std::io;
