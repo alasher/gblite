@@ -18,6 +18,7 @@ use chrono::{Utc, Datelike, Timelike};
 pub struct RuntimeConfig {
     rom_file: Option<String>,
     breakpoints: HashSet<u16>,
+    killpoint: Option<u16>,
     dump_mem: bool,
     verbose:  bool,
 }
@@ -27,6 +28,7 @@ impl RuntimeConfig {
         RuntimeConfig {
             rom_file: None,
             breakpoints: HashSet::new(),
+            killpoint: None,
             dump_mem: false,
             verbose:  false,
         }
@@ -36,7 +38,8 @@ impl RuntimeConfig {
 fn print_help_and_exit() {
     println!("{} version v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
     println!("Option -d: Dump system memory to a log file upon termination.");
-    println!("Option -b [address]: Break at the given PC address.");
+    println!("Option -b [address]: Break at the given PC address. Can be specified multiple times.");
+    println!("Option -k [address]: Kill the program at the given PC address. Can only be specified once.");
     println!("Option -v: Enable verbose instruction execution output.");
     std::process::exit(1);
 }
@@ -59,6 +62,15 @@ fn main() {
                     match u16::from_str_radix(addr_str, 16) {
                         Ok(addr) => {   println!("Parsed as: {}", addr);
                                         cfg.breakpoints.insert(addr); },
+                        Err(e) => { println!("Error parsing breakpoint argument \"{}\": {}", addr_str, e); },
+                    }
+                },
+                "-k" => {
+                    arg_skip = 1;
+                    let addr_str = std::env::args().nth(arg_id+1).unwrap();
+                    let addr_str = addr_str.trim_start_matches("0x");
+                    match u16::from_str_radix(addr_str, 16) {
+                        Ok(addr) => { cfg.killpoint = Some(addr); },
                         Err(e) => { println!("Error parsing breakpoint argument \"{}\": {}", addr_str, e); },
                     }
                 },
@@ -108,9 +120,8 @@ fn main() {
 
     let ppu = ppu::PPU::new(mem.clone());
     let mut z80 = cpu::CPU::new(mem.clone(), ppu, &cfg);
-    // let mut cnt = 0;
 
-    // Now, run instructions *literally* forever!
+    // Run instructions until the end of time
     loop {
         if !running.load(Ordering::SeqCst) {
             println!("Received Ctrl+C signal, exiting!");
@@ -118,13 +129,6 @@ fn main() {
         }
 
         if !z80.tick() { break; }
-        // cnt += 1;
-
-        // if cfg!(debug_assertions) {
-        //     if (cnt % 1000) == 0 {
-        //         println!("Instruction count: {}", cnt);
-        //     }
-        // }
     }
 
     if cfg.dump_mem {

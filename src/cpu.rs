@@ -1,20 +1,22 @@
 #![allow(dead_code)]
 
-use crate::memory::Memory;
-use crate::memory::MemClient;
-use crate::ppu::PPU;
-use crate::lookup::Instruction;
-use crate::registers::*;
-use crate::util;
-use crate::lookup;
-use crate::RuntimeConfig;
-
 use std::fmt;
 use std::io;
 use std::io::Write;
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
+
+use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+
+use crate::memory::Memory;
+use crate::memory::MemClient;
+use crate::ppu::{PPU, PPUReg};
+use crate::lookup::Instruction;
+use crate::registers::*;
+use crate::util;
+use crate::lookup;
+use crate::RuntimeConfig;
 
 #[derive(Copy, Clone, PartialEq)]
 enum AluOp {
@@ -64,26 +66,39 @@ pub struct CPU {
     was_zero: bool,
     half_carry: bool,
     full_carry: bool,
-    step: bool,
+    stepinto: bool,
     breaks: HashSet<u16>,
+    killpoint: Option<u16>,
+    stepover_break: Option<u16>,
+    last_break_arg: Option<String>,
     verbose: bool,
 }
 
 impl CPU {
     pub fn new(mem: Arc<Mutex<Memory>>, ppu: PPU, rcfg: &RuntimeConfig) -> CPU {
-        CPU {
+        let mut c = CPU {
             regs: RegisterCache::new(),
             mem: mem,
             ppu: ppu,
             ir_enabled: true,
             quit: false,
-            was_zero: false,
+            was_zero: true,
             half_carry: false,
             full_carry: false,
-            step: false,
+            stepinto: false,
             breaks: rcfg.breakpoints.clone(),
+            killpoint: rcfg.killpoint,
+            stepover_break: None,
+            last_break_arg: None,
             verbose: rcfg.verbose,
-        }
+        };
+
+        // Setup initial register values
+        c.regs.set_flag(Flag::Z, c.was_zero);
+        c.regs.set(Reg8::A, 1);
+        c.regs.set(Reg16::SP, 0xFFFE);
+
+        c
     }
 
     // Lock the memory object and return byte at the given memory address.
@@ -534,6 +549,10 @@ impl CPU {
         let inst = lookup::get_instruction(opcode);
 
         // TODO: Check here to see if we need to process an interrupt
+
+        // Handle debugging here
+        self.handle_debugging(&inst, old_pc);
+        if self.quit { return false; }
 
         // Increment PC before we process the instruction. During execution the current PC will
         // represent the next instruction to process.
@@ -1075,43 +1094,87 @@ impl CPU {
             }
         }
 
-        if self.verbose {
-            self.print_instruction_info(&inst, old_pc);
-        }
-
-        // Print register info if we have a breakpoint.
-        if self.breaks.contains(&old_pc) || self.step {
-            self.step = false;
-            self.regs.print_registers();
-            self.handle_breakpoint(old_pc);
-        }
-
         !self.quit
-    }
-
-    fn print_instruction_info(&self, inst: &Instruction, old_pc: u16) {
-        let mut pstr = format!("0x{:04x}: {} - {} cycles", old_pc, inst.name, inst.clocks);
-        if inst.bytes > 1 && !inst.prefix_cb {
-            pstr += " - operands: ";
-            for i in 1..inst.bytes {
-                pstr += &format!("0x{:02x} ", self.mem_get(old_pc + i as u16));
-            }
-        }
-        println!("{}", pstr);
     }
 
     pub fn add_breakpoint(&mut self, addr: u16) {
         self.breaks.insert(addr);
     }
 
-    fn handle_breakpoint(&mut self, addr: u16) {
-        print!("Breaking at PC 0x{:04x}\nPress \'c\' to continue, \'n\' to step next: ", addr);
-        let mut selection = String::new();
-        io::stdout().flush().ok().expect("Problem flushing stdout.");
-        io::stdin().read_line(&mut selection).expect("Could not read from stdin!");
-        selection = selection.trim_matches(char::is_whitespace).to_string();
-        if selection == "s" || selection == "n" {
-            self.step = true;
+    fn handle_debugging(&mut self, inst: &Instruction, pc: u16) {
+        let mut should_break = false;
+        if self.breaks.contains(&pc) { should_break = true; }
+        if self.stepover_break == Some(pc) || self.stepinto {
+            should_break = true;
+            self.stepinto = false;
+            self.stepover_break = None;
+        }
+
+        if should_break {
+            self.print_instruction_info(&inst, pc, true);
+            self.get_breakpoint_input(&inst, pc);
+        } else if self.verbose {
+            self.print_instruction_info(&inst, pc, false);
+        }
+
+        if self.killpoint == Some(pc) {
+            self.quit = true;
+            return;
+        }
+    }
+
+    fn print_instruction_info(&self, inst: &Instruction, cur_pc: u16, is_break: bool) {
+        let mut pstr = format!("0x{:04x}: {} - {} cycles", cur_pc, inst.name, inst.clocks);
+        if inst.bytes > 1 && !inst.prefix_cb {
+            pstr += " - operands: ";
+            if inst.bytes == 3 {
+                pstr += &format!("0x{:04x}", self.parse_u16(cur_pc + 1 as u16));
+            } else {
+                for i in 1..inst.bytes {
+                    pstr += &format!("0x{:02x} ", self.mem_get(cur_pc + i as u16));
+                }
+            }
+        }
+        let mut stdout = StandardStream::stdout(ColorChoice::Always);
+        if is_break {
+            stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)).set_bold(true)).unwrap();
+        }
+        writeln!(&mut stdout, "{}", pstr).unwrap();
+        stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
+    }
+
+    fn print_register_info(&self) {
+        self.regs.print_registers();
+        println!("LCDC: 0x{:02x}, STAT: 0x{:02x}, LY: 0x{:02x}",
+                 self.mem_get(PPUReg::Lcdc as u16),
+                 self.mem_get(PPUReg::Stat as u16),
+                 self.mem_get(PPUReg::Ly as u16));
+    }
+
+    fn get_breakpoint_input(&mut self, inst: &Instruction, cur_pc: u16) {
+        let mut done = false;
+        while !done {
+            print!("Press \'c\' to continue, \'s\' to step, \'p\' to print regs: ");
+            let mut selection = String::new();
+            io::stdout().flush().ok().expect("Problem flushing stdout.");
+            io::stdin().read_line(&mut selection).expect("Could not read from stdin!");
+            selection = selection.trim_matches(char::is_whitespace).to_string();
+
+            // Use the last selection if this one's empty
+            selection = match selection.as_str() {
+                "" => self.last_break_arg.clone().unwrap_or(String::from("")),
+                _ => selection,
+            };
+
+            // Handle selection
+            match selection.as_str() {
+                "p" => { self.print_register_info(); },
+                "s" => { self.stepinto = true; done = true; }
+                "n" => { self.stepover_break = Some(cur_pc + (inst.bytes as u16)); done = true; }
+                _   => { done = true; }
+            }
+
+            self.last_break_arg = Some(selection);
         }
     }
 }

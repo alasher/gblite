@@ -22,7 +22,7 @@ enum PPUState {
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
-enum PPUReg {
+pub enum PPUReg {
     Lcdc = 0xFF40,
     Stat = 0xFF41,
     Scy  = 0xFF42,
@@ -269,7 +269,7 @@ impl PPU {
         let tile_data_ptr_nxt = self.get_bg_data_ptr((tile_x + 1) % 32, tile_y) + tile_y_offset as u16 * 2;
 
         // TODO: use parse_u16 here (see CPU module) and port that function to a new memory controller.
-        // This is currently duplicated code, but it will take a bigger refactor to fix. 
+        // This is currently duplicated code, but it will take a bigger refactor to fix.
         let tile_data_cur = util::join_u8((self.mem_get(tile_data_ptr_cur), self.mem_get(tile_data_ptr_cur+1)));
         let tile_data_nxt = util::join_u8((self.mem_get(tile_data_ptr_nxt), self.mem_get(tile_data_ptr_nxt+1)));
 
@@ -439,6 +439,10 @@ impl PPU {
                 PPUReg::Wx   => self.cfg.wx,
                 PPUReg::Vbk  => if self.cfg.vbk_enable { 1 } else { 0 },
             };
+
+            if self.cfg.ly != 0 {
+                println!("Setting LY to not-zero!!! it's {}", self.cfg.ly);
+            }
 
             self.mem_set(reg as u16, val);
         }
