@@ -90,7 +90,7 @@ impl DoubleRegister {
     fn set_second(&mut self, val: u8) { self.b = val; }
 
     fn get_double(&self) -> u16 {
-        (((self.get_first() as u16) << 8) | self.get_second() as u16)
+        ((self.get_first() as u16) << 8) | self.get_second() as u16
     }
 
     // BC <- 0xFF11 means (B = 0xFF, C = 0x11)

@@ -99,6 +99,8 @@ impl CPU {
     }
 
     // Get the u16 value starting at $(addr), little endian.
+    // TODO: move this to a memory controller class. We should be able to create a memory
+    // client object that manages accesses to memory and has utility functions like this.
     fn parse_u16(&self, addr: u16) -> u16 {
         util::join_u8((self.mem_get(addr), self.mem_get(addr+1)))
     }
@@ -530,6 +532,8 @@ impl CPU {
         };
 
         let inst = lookup::get_instruction(opcode);
+
+        // TODO: Check here to see if we need to process an interrupt
 
         // Increment PC before we process the instruction. During execution the current PC will
         // represent the next instruction to process.

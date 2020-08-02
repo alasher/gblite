@@ -1,9 +1,10 @@
 // PPU abstracts the details of the PPU from the CPU. It's different from the Window struct because
 // the window abstracts platform-specific details related to operating the window.
 
-use crate::window::Window;
+use crate::util;
 use crate::memory::Memory;
 use crate::memory::MemClient;
+use crate::window::Window;
 
 use std::fmt::{Display, Formatter, Result};
 use std::sync::Arc;
@@ -67,18 +68,19 @@ struct PPUConfig {
     tall_objs: bool,         // LCDC bit 2 - Enables tall sprites
     obj_en: bool,            // LCDC bit 1 - Enables sprite rendering
     bg_priority: bool,       // LCDC bit 0 - Forces BG pixels to highest priority (over OBJs)
-    stat: u8,
-    scy: u8,
-    scx: u8,
-    ly:  u8,
-    lyc: u8,
-    dma: u8,
-    bgp: u8,
-    obp0: u8,
-    obp1: u8,
-    wy: u8,
-    wx: u8,
-    vbk: u8,
+    stat: u8,                // STAT - the LCDC status register. TODO: split this up.
+    scy: u8,                 // SCY - the scroll X offset
+    scx: u8,                 // SCX - the scroll Y offset
+    ly:  u8,                 // LY register - the current Y line we're rendering.
+    lx:  u8,                 // The X pixel we're rendering - this doesn't map to a hardware register.
+    lyc: u8,                 // LYC - line Y compare value, used for the LYC interrupt.
+    dma: u8,                 // DMA - function to DMA from generic memory point to OAM RAM.
+    bgp: u8,                 // BGP - background palette
+    obp0: u8,                // OBP0 - object palette 0
+    obp1: u8,                // OBP1 - object palette 1
+    wy: u8,                  // WY - the window Y offset
+    wx: u8,                  // WX - the window X offset
+    vbk_enable: bool,        // VBK bit 0 - enable VRAM bank 1, CGB only
 }
 
 #[derive(Copy, Clone, PartialEq)]
@@ -91,17 +93,19 @@ pub struct PPU {
     lcd: Window,             // The actual graphics window, not to be confused with a Game Boy window map/tile.
     state: PPUState,         // Current PPU state, non-off is STAT[0:1], OFF is controlled by LCDC bit 7.
     mem: Arc<Mutex<Memory>>, // Reference to our Memory object.
+    pixels: Vec<u8>,         // Vector containing pixel data. Currently UINT RGB8 format.
     cfg: PPUConfig,          // Struct containing all PPU register config values
     dbg: PPUDebug,           // Struct containing debug information and statistics
-    width: u32,              // Width of the virtual window, fixed at 160.
-    height: u32,             // Height of the virtual window, fixed at 144.
     lclk: u32,               // The machine cycle for this line, from [0, 113].
 }
 
 impl PPU {
+
+    const WIDTH:  usize = 160;
+    const HEIGHT: usize = 144;
+
     pub fn new(mem: Arc<Mutex<Memory>>) -> Self {
-        let (w, h) = (160u8, 144u8);
-        let lcd = Window::new(w.into(), h.into());
+        let lcd = Window::new(PPU::WIDTH, PPU::HEIGHT);
 
         let regs: Vec<PPUReg> = [
             PPUReg::Lcdc,
@@ -133,6 +137,7 @@ impl PPU {
             scy: 0,
             scx: 0,
             ly: 0,
+            lx: 0,
             lyc: 0,
             dma: 0,
             bgp: 0xfc,
@@ -140,11 +145,11 @@ impl PPU {
             obp1: 0xff,
             wy: 0,
             wx: 0,
-            vbk: 0,
+            vbk_enable: false,
         };
 
         let dbg = PPUDebug {
-            enabled: false,
+            enabled: true,
             last_frame: Instant::now(),
         };
 
@@ -152,10 +157,9 @@ impl PPU {
             lcd: lcd,
             state: PPUState::Off,
             mem: mem,
+            pixels: vec![0; PPU::WIDTH*PPU::HEIGHT*3],
             cfg: cfg,
             dbg: dbg,
-            width: w,
-            height: h,
             lclk: 0,
         };
 
@@ -186,10 +190,12 @@ impl PPU {
             PPUState::Quit => (),
             PPUState::Off => (),
             PPUState::HBlank => {
+                if self.lclk == 63 {
+                    self.render_line();
+                }
                 if self.lclk == 113 {
                     if self.cfg.ly == 143 {
                         self.state = PPUState::VBlank;
-                        self.render();
                     } else {
                         self.state = PPUState::Draw;
                     }
@@ -202,6 +208,7 @@ impl PPU {
             PPUState::VBlank => {
                 if self.lclk == 113 {
                     if self.cfg.ly == 153 {
+                        self.present();
                         self.state = PPUState::OAMSearch;
                         self.cfg.ly = 0;
                     } else {
@@ -232,40 +239,96 @@ impl PPU {
     // Start and stop are not public, they must be activated by LCDC.
     fn start(&mut self) {
         self.state = PPUState::OAMSearch;
+        self.dbg.last_frame = Instant::now();
         self.lclk = 0;
         self.cfg.ly = 0;
-        self.render();
     }
 
-    fn render(&mut self) {
-        // TODO: Right now pixel format is RGB8 (8 bits for each component)
-        // This can probably be lowered once I know more about the CGB.
-        let mut pixels = Vec::new();
-        for w in 0..self.width {
-            let start_nums = (61.0,  74.0, 130.0);
-            let end_nums   = (72.0, 210.0, 219.0);
-            let pratio = (w as f32) / (self.width as f32);
-            for _h in 0..self.height {
-                pixels.push((start_nums.0 + pratio*(end_nums.0 - start_nums.0)) as u8);
-                pixels.push((start_nums.1 + pratio*(end_nums.1 - start_nums.1)) as u8);
-                pixels.push((start_nums.2 + pratio*(end_nums.2 - start_nums.2)) as u8);
-            }
+    fn render_line(&mut self) {
+        // For each scanline...
+        let wt = PPU::WIDTH / 8;
+        for _w in 0..wt {
+            self.get_chunk();
         }
+    }
 
-        self.lcd.draw(&pixels[..]);
+    // A "chunk" is a group of 8 horizontal pixels.
+    fn get_chunk(&mut self) {
+        let global_pixel_y = self.cfg.ly.wrapping_add(self.cfg.scy);
+        let global_pixel_x = self.cfg.lx.wrapping_add(self.cfg.scx);
+
+        // Get the tile coordinates, and the offset within each tile.
+        let tile_y = global_pixel_y / 8;
+        let tile_x = global_pixel_x / 8;
+        let tile_y_offset = global_pixel_y % 8;
+        let tile_x_offset = global_pixel_x % 8;
+
+        // We export 8 pixels here, so the data could come from two adjacent tiles (due to scrolling).
+        // So we get the data for both this tile and next horizontally adjacent tile.
+        let tile_data_ptr_cur = self.get_bg_data_ptr(tile_x, tile_y) + tile_y_offset as u16 * 2;
+        let tile_data_ptr_nxt = self.get_bg_data_ptr((tile_x + 1) % 32, tile_y) + tile_y_offset as u16 * 2;
+
+        // TODO: use parse_u16 here (see CPU module) and port that function to a new memory controller.
+        // This is currently duplicated code, but it will take a bigger refactor to fix. 
+        let tile_data_cur = util::join_u8((self.mem_get(tile_data_ptr_cur), self.mem_get(tile_data_ptr_cur+1)));
+        let tile_data_nxt = util::join_u8((self.mem_get(tile_data_ptr_nxt), self.mem_get(tile_data_ptr_nxt+1)));
+
+        let hi_bits = (tile_data_cur & 0xFF00) | (tile_data_nxt >> 8);
+        let lo_bits = (tile_data_cur << 8) | (tile_data_nxt & 0xFF);
+
+        let hi_bits = hi_bits.reverse_bits() >> tile_x_offset;
+        let lo_bits = lo_bits.reverse_bits() >> tile_x_offset;
+
+        // We're almost there!
+        for _x in 0..8 {
+            let val: u8 = ((hi_bits & 0x1) as u8) << 1 | (lo_bits & 0x1) as u8;
+            let write_addr = ((self.cfg.ly as usize * PPU::WIDTH) + self.cfg.lx as usize) * 3;
+
+            // TODO: Map this value to a palette value
+            let (r,g,b) = match val {
+                0 => { (0xFF, 0xFF, 0xFF) },
+                1 => { (0xAA, 0xAA, 0xAA) },
+                2 => { (0x55, 0x55, 0x55) },
+                3 => { (0x00, 0x00, 0x00) },
+                _ => { (0xFF, 0x00, 0x00) },
+            };
+
+            self.pixels[write_addr+0] = r;
+            self.pixels[write_addr+1] = g;
+            self.pixels[write_addr+2] = b;
+            self.cfg.lx = (self.cfg.lx + 1) % PPU::WIDTH as u8;
+        }
+    }
+
+    // Given the coordinates of a BG map tile, return the start address of that tile's data.
+    fn get_bg_data_ptr(&self, tx: u8, ty: u8) -> u16 {
+        let base_bg_map_addr: u16 = if self.cfg.bg_map_high_bank { 0x9c00 } else { 0x9800 };
+        let base_bg_data_addr: u16 = if self.cfg.bg_data_low_bank { 0x8000 } else { 0x9000 };
+        let bg_map_ptr = base_bg_map_addr + (ty as u16)*32 + tx as u16;
+        let bg_data_offset = self.mem_get(bg_map_ptr);
+
+        // Depending on the bank location, the addressing mode is different.
+        // High-bank config uses a signed integer offset, low-bank is unsigned.
+        let bg_data_offset = if self.cfg.bg_data_low_bank {
+            bg_data_offset as i16
+        } else {
+            (bg_data_offset as i8) as i16
+        };
+
+        // We multiply the offset by 16 because that's the number of bytes per-tile.
+        (base_bg_data_addr as i16 + bg_data_offset * 16) as u16
+    }
+
+    fn present(&mut self) {
+        self.lcd.draw(self.pixels.as_slice());
 
         if self.dbg.enabled {
             let now = Instant::now();
-            let frame_time = now.duration_since(self.dbg.last_frame);
+            let frame_time = now.duration_since(self.dbg.last_frame).as_micros();
             self.dbg.last_frame = now;
-            println!("Render time for this frame: {} ms, or {} fps.", frame_time.as_millis(), 1.0 / (frame_time.as_millis() as u32) as f32 * 1000.0);
+            println!("Render time for this frame: {} us, or {:.2} fps.", frame_time, (1.0 / frame_time as f64) * 1000000.0);
         }
     }
-
-    // Right now, just get the whole scanline at one time.
-    // TODO: In the future, I should probably make sure this is cycle-accurate
-    // fn get_pixels(&mut self) -> &[u8] {
-    // }
 
     fn stop(&mut self) {
         self.state = PPUState::Off;
@@ -338,7 +401,7 @@ impl PPU {
                 PPUReg::Obp1 => self.cfg.obp1 = val,
                 PPUReg::Wy   => self.cfg.wy   = val,
                 PPUReg::Wx   => self.cfg.wx   = val,
-                PPUReg::Vbk  => self.cfg.vbk  = val,
+                PPUReg::Vbk  => self.cfg.vbk_enable = val == 1,
             }
         }
     }
@@ -374,7 +437,7 @@ impl PPU {
                 PPUReg::Obp1 => self.cfg.obp1,
                 PPUReg::Wy   => self.cfg.wy,
                 PPUReg::Wx   => self.cfg.wx,
-                PPUReg::Vbk  => self.cfg.vbk,
+                PPUReg::Vbk  => if self.cfg.vbk_enable { 1 } else { 0 },
             };
 
             self.mem_set(reg as u16, val);
