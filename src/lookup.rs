@@ -2117,7 +2117,7 @@ pub fn get_instruction(opcode: u16) -> Instruction {
         0xe9 => Instruction {
             opcode: 0xe9,
             prefix_cb: false,
-            name: String::from("JP (HL)"),
+            name: String::from("JP HL"),
             bytes: 1,
             clocks: 4,
             clocks_extra: 0,

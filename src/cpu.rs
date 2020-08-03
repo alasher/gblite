@@ -252,12 +252,6 @@ impl CPU {
         }
     }
 
-    fn jump_hl_ptr(&mut self) {
-        let addr = self.regs.get(Reg16::HL);
-        let addr = self.parse_u16(addr);
-        self.regs.set(Reg16::PC, addr);
-    }
-
     // Jump only if flag is set (or unset)
     fn jump_relative_flag(&mut self, flag: Flag, if_unset: bool, offset: u8) {
         let flag_val = match flag {
@@ -324,8 +318,9 @@ impl CPU {
             AluOp::Xor      => op_a ^ op_b,
             AluOp::Or       => op_a | op_b,
             AluOp::Comp     => {
-                self.half_carry = op_a < op_b;
-                self.full_carry = (op_a & 0xf) < (op_b & 0xf);
+                self.was_zero   = op_a == op_b;
+                self.half_carry = op_a > op_b;
+                self.full_carry = op_a < op_b;
                 op_a
             },
             AluOp::RotateLeft(carry_op) => {
@@ -803,7 +798,7 @@ impl CPU {
             0xe6 => self.arith_imm(AluOp::And, Reg8::A, lookup::get_flags(opcode), _operand8),
             0xe7 => self.call(0x20),
             0xe8 => self.add_sp_signed(lookup::get_flags(opcode), Reg16::SP, _operand8 as i8),
-            0xe9 => self.jump_hl_ptr(),
+            0xe9 => {let a = self.regs.get(Reg16::HL); self.regs.set(Reg16::PC, a); },
             0xea => {let a = self.regs.get(Reg8::A); self.mem_set(a, _operand16)},
             0xeb => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
             0xec => panic!("Received invalid instruction UNKNOWN_{:02X}", opcode),
