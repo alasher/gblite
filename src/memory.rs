@@ -43,10 +43,21 @@ impl Memory {
     }
 
     pub fn set(&mut self, val: u8, addr: u16, _client: MemClient) {
-        if addr >= 0xFF00 && addr <= 0xFF7F {
-            // println!("[MEM] Setting I/O Register 0x{:04X} = 0x{:02X}", addr, val);
+        let a = addr as usize;
+        if a < 0x100 {
+            if self.bootrom_enabled() {
+                self.bios[a] = val;
+            } else {
+                self.rom[a] = val;
+            }
+        } else if a < 0x4000 {
+            self.rom[a] = val;
+        } else if a < 0x8000 {
+            println!("Writing to ROM bank N, this is unimplemented!");
+            self.rom[a] = val;
+        } else {
+            self.mem[a] = val;
         }
-        self.mem[addr as usize] = val;
     }
 
     pub fn load_rom_file(&mut self, file_name : &str) {

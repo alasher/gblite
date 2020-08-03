@@ -1,5 +1,3 @@
-#![allow(dead_code)]
-
 use std::fmt;
 use std::io;
 use std::io::Write;
@@ -8,6 +6,7 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
+use chrono::{Utc, Datelike, Timelike};
 
 use crate::memory::Memory;
 use crate::memory::MemClient;
@@ -1102,10 +1101,6 @@ impl CPU {
         !self.quit
     }
 
-    pub fn add_breakpoint(&mut self, addr: u16) {
-        self.breaks.insert(addr);
-    }
-
     fn handle_debugging(&mut self, inst: &Instruction, pc: u16) {
         let mut should_break = false;
         if self.breaks.contains(&pc) { should_break = true; }
@@ -1154,6 +1149,10 @@ impl CPU {
                  self.mem_get(PPUReg::Lcdc as u16),
                  self.mem_get(PPUReg::Stat as u16),
                  self.mem_get(PPUReg::Ly as u16));
+        let hl = self.regs.get(Reg16::HL);
+        println!("(HL) as u8: 0x{:02x}, (HL) as u16: 0x{:04x}",
+                 self.mem_get(hl),
+                 self.parse_u16(hl));
     }
 
     fn get_breakpoint_input(&mut self, inst: &Instruction, cur_pc: u16) {
@@ -1176,6 +1175,11 @@ impl CPU {
                 "p" => { self.print_register_info(); },
                 "s" => { self.stepinto = true; done = true; }
                 "n" => { self.stepover_break = Some(cur_pc + (inst.bytes as u16)); done = true; }
+                "d" => {
+                    let dt = Utc::now();
+                    let fname = format!("gblite_mem_{}_{:02}_{:02}_{}_runtime.log", dt.year(), dt.month(), dt.day(),
+                                         dt.num_seconds_from_midnight());
+                    let mref = self.mem.lock().unwrap(); mref.dump_to_file(fname.as_str()).unwrap(); }
                 _   => { done = true; }
             }
 
