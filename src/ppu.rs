@@ -13,12 +13,10 @@ use std::time::Instant;
 
 #[derive(Copy, Clone, PartialEq)]
 enum PPUState {
-    Quit,        // Quit is a signal from the OS window indicating to terminate gblite.
-    Off,         // Off keeps the application open, but leaves the LCD inactive.
-    HBlank,      // HBlank is the LCD idle period after each line is drawn.
-    VBlank,      // VBlank is the LCD idle period after the final line is drawn.
-    OAMSearch,   // OAM Search is the initial linear scan of objects on a given line.
-    Draw         // Draw is the lookup and transfer period of pixels to the LCD.
+    HBlank    = 0, // HBlank is the LCD idle period after each line is drawn.
+    VBlank    = 1, // VBlank is the LCD idle period after the final line is drawn.
+    OAMSearch = 2, // OAM Search is the initial linear scan of objects on a given line.
+    Draw      = 3, // Draw is the lookup and transfer period of pixels to the LCD.
 }
 
 #[derive(Copy, Clone, PartialEq, Eq, Hash, Debug)]
@@ -68,7 +66,12 @@ struct PPUConfig {
     tall_objs: bool,         // LCDC bit 2 - Enables tall sprites
     obj_en: bool,            // LCDC bit 1 - Enables sprite rendering
     bg_priority: bool,       // LCDC bit 0 - Forces BG pixels to highest priority (over OBJs)
-    stat: u8,                // STAT - the LCDC status register. TODO: split this up.
+    ly_eq_lyc_intr: bool,    // STAT bit 6 - Enable the LY==LYC coincidence interrupt
+    oam_intr: bool,          // STAT bit 5 - Enable the OAM interrupt
+    vblank_intr: bool,       // STAT bit 4 - Enable the VBLANK interrupt
+    hblank_intr: bool,       // STAT bit 3 - Enable the HBLANK interrupt
+    ly_eq_lyc: bool,         // STAT bit 2 - LY==LYC if true
+    state: PPUState,         // STAT bit 0-1 - LCD state mode flag
     scy: u8,                 // SCY - the scroll X offset
     scx: u8,                 // SCX - the scroll Y offset
     ly:  u8,                 // LY register - the current Y line we're rendering.
@@ -91,12 +94,12 @@ struct PPUDebug {
 
 pub struct PPU {
     lcd: Window,             // The actual graphics window, not to be confused with a Game Boy window map/tile.
-    state: PPUState,         // Current PPU state, non-off is STAT[0:1], OFF is controlled by LCDC bit 7.
     mem: Arc<Mutex<Memory>>, // Reference to our Memory object.
     pixels: Vec<u8>,         // Vector containing pixel data. Currently UINT RGB8 format.
     cfg: PPUConfig,          // Struct containing all PPU register config values
     dbg: PPUDebug,           // Struct containing debug information and statistics
     lclk: u32,               // The machine cycle for this line, from [0, 113].
+    alive: bool,             // Whether or not the application should continue running. This is != LCD disabled.
 }
 
 impl PPU {
@@ -125,15 +128,20 @@ impl PPU {
 
         let cfg = PPUConfig {
             regs: regs,
-            lcd_enabled: true,         // LCDC bit 7
-            win_map_high_bank: false,  // LCDC bit 6
-            win_en: false,             // LCDC bit 5
-            bg_data_low_bank: true,    // LCDC bit 4
-            bg_map_high_bank: false,   // LCDC bit 3
-            tall_objs: false,          // LCDC bit 2
-            obj_en: false,             // LCDC bit 1
-            bg_priority: true,         // LCDC bit 0
-            stat: 0,
+            lcd_enabled: true,
+            win_map_high_bank: false,
+            win_en: false,
+            bg_data_low_bank: true,
+            bg_map_high_bank: false,
+            tall_objs: false,
+            obj_en: false,
+            bg_priority: true,
+            ly_eq_lyc_intr: false,
+            oam_intr: false,
+            vblank_intr: false,
+            hblank_intr: false,
+            ly_eq_lyc: true,
+            state: PPUState::HBlank,
             scy: 0,
             scx: 0,
             ly: 0,
@@ -155,12 +163,12 @@ impl PPU {
 
         let mut ppu = PPU {
             lcd: lcd,
-            state: PPUState::Off,
             mem: mem,
             pixels: vec![0; PPU::WIDTH*PPU::HEIGHT*3],
             cfg: cfg,
             dbg: dbg,
             lclk: 0,
+            alive: true,
         };
 
         // Initialize PPU config registers
@@ -186,62 +194,59 @@ impl PPU {
         self.pull_registers();
         self.check_events();
 
-        match self.state {
-            PPUState::Quit => (),
-            PPUState::Off => (),
-            PPUState::HBlank => {
-                if self.lclk == 63 {
-                    self.render_line();
-                }
-                if self.lclk == 113 {
-                    if self.cfg.ly == 143 {
-                        self.state = PPUState::VBlank;
-                    } else {
-                        self.state = PPUState::Draw;
+        if !self.alive { return; }
+
+        if self.cfg.lcd_enabled { 
+            match self.cfg.state {
+                PPUState::HBlank => {
+                    if self.lclk == 63 {
+                        self.render_line();
                     }
-                    self.cfg.ly += 1;
-                    self.lclk = 0;
-                } else {
-                    self.lclk += 1;
-                }
-            },
-            PPUState::VBlank => {
-                if self.lclk == 113 {
-                    if self.cfg.ly == 153 {
-                        self.present();
-                        self.state = PPUState::OAMSearch;
-                        self.cfg.ly = 0;
-                    } else {
+                    if self.lclk == 113 {
+                        if self.cfg.ly == 143 {
+                            self.cfg.state = PPUState::VBlank;
+                        } else {
+                            self.cfg.state = PPUState::Draw;
+                        }
                         self.cfg.ly += 1;
+                        self.lclk = 0;
+                    } else {
+                        self.lclk += 1;
                     }
-                    self.lclk = 0;
-                } else {
+                },
+                PPUState::VBlank => {
+                    if self.lclk == 113 {
+                        if self.cfg.ly == 153 {
+                            self.present();
+                            self.cfg.state = PPUState::OAMSearch;
+                            self.cfg.ly = 0;
+                        } else {
+                            self.cfg.ly += 1;
+                        }
+                        self.lclk = 0;
+                    } else {
+                        self.lclk += 1;
+                    }
+                },
+                PPUState::OAMSearch => {
+                    if self.lclk == 19 {
+                        self.cfg.state = PPUState::Draw;
+                    }
+                    self.lclk += 1;
+                },
+                PPUState::Draw => {
+                    if self.lclk == 62 {
+                        self.cfg.state = PPUState::HBlank;
+                    }
                     self.lclk += 1;
                 }
-            },
-            PPUState::OAMSearch => {
-                if self.lclk == 19 {
-                    self.state = PPUState::Draw;
-                }
-                self.lclk += 1;
-            },
-            PPUState::Draw => {
-                if self.lclk == 62 {
-                    self.state = PPUState::HBlank;
-                }
-                self.lclk += 1;
             }
+        } else {
+            println!("LCD is disabled");
         }
 
         self.push_registers();
-    }
 
-    // Start and stop are not public, they must be activated by LCDC.
-    fn start(&mut self) {
-        self.state = PPUState::OAMSearch;
-        self.dbg.last_frame = Instant::now();
-        self.lclk = 0;
-        self.cfg.ly = 0;
     }
 
     fn render_line(&mut self) {
@@ -330,20 +335,12 @@ impl PPU {
         }
     }
 
-    fn stop(&mut self) {
-        self.state = PPUState::Off;
-    }
-
     pub fn terminate(&mut self) {
-        self.state = PPUState::Quit;
-    }
-
-    pub fn is_rendering(&self) -> bool {
-        self.state != PPUState::Off && self.is_alive()
+        self.alive = false;
     }
 
     pub fn is_alive(&self) -> bool {
-        self.state != PPUState::Quit
+        self.alive
     }
 
     fn check_events(&mut self) {
@@ -353,18 +350,17 @@ impl PPU {
         }
 
         // Check window for termination events
-        self.lcd.get_events();
+        if self.cfg.state == PPUState::VBlank {
+            self.lcd.get_events();
+        }
         if !self.lcd.is_open() {
             self.terminate();
             return;
         }
 
-        // Check LCDC for status changes.
-        if self.cfg.lcd_enabled && !self.is_rendering() {
-            self.start();
-        } else if !self.cfg.lcd_enabled && self.is_rendering() {
-            self.stop();
-        }
+        // Check for LY==LYC
+        // TODO process the LYC interrupt here?
+        self.cfg.ly_eq_lyc = self.cfg.ly == self.cfg.lyc;
     }
 
     // Check for register changes, and apply the corresponding settings differences.
@@ -377,17 +373,20 @@ impl PPU {
 
             match reg {
                 PPUReg::Lcdc => {
-                    self.cfg.lcd_enabled         = (val & 0x80) != 0;
-                    self.cfg.win_map_high_bank   = (val & 0x40) != 0;
-                    self.cfg.win_en              = (val & 0x20) != 0;
-                    self.cfg.bg_data_low_bank    = (val & 0x10) != 0;
-                    self.cfg.bg_map_high_bank    = (val & 0x08) != 0;
-                    self.cfg.tall_objs           = (val & 0x04) != 0;
-                    self.cfg.obj_en              = (val & 0x02) != 0;
-                    self.cfg.bg_priority         = (val & 0x01) != 0;
+                    self.cfg.lcd_enabled        = (val & 0x80) != 0;
+                    self.cfg.win_map_high_bank  = (val & 0x40) != 0;
+                    self.cfg.win_en             = (val & 0x20) != 0;
+                    self.cfg.bg_data_low_bank   = (val & 0x10) != 0;
+                    self.cfg.bg_map_high_bank   = (val & 0x08) != 0;
+                    self.cfg.tall_objs          = (val & 0x04) != 0;
+                    self.cfg.obj_en             = (val & 0x02) != 0;
+                    self.cfg.bg_priority        = (val & 0x01) != 0;
                 },
                 PPUReg::Stat => {
-                    self.cfg.stat = val; // TODO: split this up
+                    self.cfg.ly_eq_lyc_intr  = (val & 0x40) != 0;
+                    self.cfg.oam_intr        = (val & 0x20) != 0;
+                    self.cfg.vblank_intr     = (val & 0x10) != 0;
+                    self.cfg.hblank_intr     = (val & 0x08) != 0;
                 },
                 PPUReg::Bgp  => {
                     self.cfg.bgp  = val; // TODO: split this up
@@ -403,6 +402,10 @@ impl PPU {
                 PPUReg::Wx   => self.cfg.wx   = val,
                 PPUReg::Vbk  => self.cfg.vbk_enable = val == 1,
             }
+        }
+
+        if self.cfg.obj_en {
+            panic!("No support for sprites yet!");
         }
     }
 
@@ -423,7 +426,12 @@ impl PPU {
                     (if self.cfg.bg_priority        { 1 } else { 0 } << 0)
                 },
                 PPUReg::Stat => {
-                    self.cfg.stat //TODO: split this up
+                    (if self.cfg.ly_eq_lyc_intr     { 1 } else { 0 } << 6) |
+                    (if self.cfg.oam_intr           { 1 } else { 0 } << 5) |
+                    (if self.cfg.vblank_intr        { 1 } else { 0 } << 4) |
+                    (if self.cfg.hblank_intr        { 1 } else { 0 } << 3) |
+                    (if self.cfg.ly_eq_lyc          { 1 } else { 0 } << 2) |
+                    ((self.cfg.state as u8) & 0x3)
                 },
                 PPUReg::Bgp => {
                     self.cfg.bgp //TODO: split this up
@@ -439,10 +447,6 @@ impl PPU {
                 PPUReg::Wx   => self.cfg.wx,
                 PPUReg::Vbk  => if self.cfg.vbk_enable { 1 } else { 0 },
             };
-
-            if self.cfg.ly != 0 {
-                println!("Setting LY to not-zero!!! it's {}", self.cfg.ly);
-            }
 
             self.mem_set(reg as u16, val);
         }
