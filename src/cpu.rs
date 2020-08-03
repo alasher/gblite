@@ -193,11 +193,11 @@ impl CPU {
     }
 
     // Copy value between A and (HL), then add or subtract HL.
-    fn ldd_special(&mut self, is_get: bool, is_add: bool) {
-        if is_get {
-            self.get_reg_ptr(Reg8::A, Reg16::HL); // LD A, (HL+/-)
-        } else {
+    fn ldd_special(&mut self, is_set: bool, is_add: bool) {
+        if is_set {
             self.set_reg_ptr(Reg16::HL, Reg8::A); // LD (HL+/-), A
+        } else {
+            self.get_reg_ptr(Reg8::A, Reg16::HL); // LD A, (HL+/-)
         }
 
         if is_add {
