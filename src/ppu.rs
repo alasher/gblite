@@ -196,11 +196,14 @@ impl PPU {
 
         if !self.alive { return; }
 
-        if self.cfg.lcd_enabled { 
+        if self.cfg.lcd_enabled {
             match self.cfg.state {
                 PPUState::HBlank => {
                     if self.lclk == 63 {
                         self.render_line();
+                        if self.cfg.ly == 143 {
+                            self.present();
+                        }
                     }
                     if self.lclk == 113 {
                         if self.cfg.ly == 143 {
@@ -217,7 +220,6 @@ impl PPU {
                 PPUState::VBlank => {
                     if self.lclk == 113 {
                         if self.cfg.ly == 153 {
-                            self.present();
                             self.cfg.state = PPUState::OAMSearch;
                             self.cfg.ly = 0;
                         } else {
@@ -241,12 +243,9 @@ impl PPU {
                     self.lclk += 1;
                 }
             }
-        } else {
-            println!("LCD is disabled");
         }
 
         self.push_registers();
-
     }
 
     fn render_line(&mut self) {
@@ -270,24 +269,28 @@ impl PPU {
 
         // We export 8 pixels here, so the data could come from two adjacent tiles (due to scrolling).
         // So we get the data for both this tile and next horizontally adjacent tile.
-        let tile_data_ptr_cur = self.get_bg_data_ptr(tile_x, tile_y) + tile_y_offset as u16 * 2;
-        let tile_data_ptr_nxt = self.get_bg_data_ptr((tile_x + 1) % 32, tile_y) + tile_y_offset as u16 * 2;
+        let data_line_ptr_cur = self.get_bg_data_ptr(tile_x, tile_y) + tile_y_offset as u16 * 2;
+        let data_line_ptr_nxt = self.get_bg_data_ptr((tile_x + 1) % 32, tile_y) + tile_y_offset as u16 * 2;
 
-        // TODO: use parse_u16 here (see CPU module) and port that function to a new memory controller.
-        // This is currently duplicated code, but it will take a bigger refactor to fix.
-        let tile_data_cur = util::join_u8((self.mem_get(tile_data_ptr_cur), self.mem_get(tile_data_ptr_cur+1)));
-        let tile_data_nxt = util::join_u8((self.mem_get(tile_data_ptr_nxt), self.mem_get(tile_data_ptr_nxt+1)));
+        // From Pan Docs:
+        // "For each line, the first byte defines the least significant bits of the color numbers
+        //  for each pixel, and the second byte defines the upper bits of the color numbers. In
+        //  either case, Bit 7 is the leftmost pixel, and Bit 0 the rightmost."
+        let data_line_cur = util::join_u8((self.mem_get(data_line_ptr_cur), self.mem_get(data_line_ptr_cur+1)));
+        let data_line_nxt = util::join_u8((self.mem_get(data_line_ptr_nxt), self.mem_get(data_line_ptr_nxt+1)));
 
-        let hi_bits = (tile_data_cur & 0xFF00) | (tile_data_nxt >> 8);
-        let lo_bits = (tile_data_cur << 8) | (tile_data_nxt & 0xFF);
+        let hi_bits = (data_line_cur & 0xFF00) | (data_line_nxt >> 8);
+        let lo_bits = (data_line_cur << 8) | (data_line_nxt & 0xFF);
 
-        let hi_bits = hi_bits.reverse_bits() >> tile_x_offset;
-        let lo_bits = lo_bits.reverse_bits() >> tile_x_offset;
+        let mut hi_bits = hi_bits.reverse_bits() >> tile_x_offset;
+        let mut lo_bits = lo_bits.reverse_bits() >> tile_x_offset;
 
         // We're almost there!
         for _x in 0..8 {
             let val: u8 = ((hi_bits & 0x1) as u8) << 1 | (lo_bits & 0x1) as u8;
             let write_addr = ((self.cfg.ly as usize * PPU::WIDTH) + self.cfg.lx as usize) * 3;
+            hi_bits = hi_bits >> 1;
+            lo_bits = lo_bits >> 1;
 
             // TODO: Map this value to a palette value
             let (r,g,b) = match val {
@@ -403,10 +406,6 @@ impl PPU {
                 PPUReg::Vbk  => self.cfg.vbk_enable = val == 1,
             }
         }
-
-        if self.cfg.obj_en {
-            panic!("No support for sprites yet!");
-        }
     }
 
     // Flush register changes to memory
@@ -426,12 +425,13 @@ impl PPU {
                     (if self.cfg.bg_priority        { 1 } else { 0 } << 0)
                 },
                 PPUReg::Stat => {
+                    (0x1 << 7) | // Bit 7 of STAT always returns 1
                     (if self.cfg.ly_eq_lyc_intr     { 1 } else { 0 } << 6) |
                     (if self.cfg.oam_intr           { 1 } else { 0 } << 5) |
                     (if self.cfg.vblank_intr        { 1 } else { 0 } << 4) |
                     (if self.cfg.hblank_intr        { 1 } else { 0 } << 3) |
                     (if self.cfg.ly_eq_lyc          { 1 } else { 0 } << 2) |
-                    ((self.cfg.state as u8) & 0x3)
+                    (if self.cfg.lcd_enabled { (self.cfg.state as u8) & 0x3 } else { 0 })
                 },
                 PPUReg::Bgp => {
                     self.cfg.bgp //TODO: split this up
