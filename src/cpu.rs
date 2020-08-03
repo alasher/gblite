@@ -83,8 +83,8 @@ impl CPU {
             ir_enabled: true,
             quit: false,
             was_zero: true,
-            half_carry: false,
-            full_carry: false,
+            half_carry: true,
+            full_carry: true,
             stepinto: false,
             breaks: rcfg.breakpoints.clone(),
             killpoint: rcfg.killpoint,
@@ -94,8 +94,13 @@ impl CPU {
         };
 
         // Setup initial register values
+        // TODO: modify this for GBC
         c.regs.set_flag(Flag::Z, c.was_zero);
-        c.regs.set(Reg8::A, 1);
+        c.regs.set_flag(Flag::H, c.half_carry);
+        c.regs.set_flag(Flag::CY, c.full_carry);
+        c.regs.set(Reg8::A, 0x01);
+        c.regs.set(Reg8::C, 0x13);
+        c.regs.set(Reg16::HL, 0x014D);
         c.regs.set(Reg16::SP, 0xFFFE);
 
         c

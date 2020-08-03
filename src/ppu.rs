@@ -141,7 +141,7 @@ impl PPU {
             vblank_intr: false,
             hblank_intr: false,
             ly_eq_lyc: true,
-            state: PPUState::HBlank,
+            state: PPUState::VBlank,
             scy: 0,
             scx: 0,
             ly: 0,
