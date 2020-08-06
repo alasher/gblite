@@ -187,7 +187,7 @@ impl RegOps<Reg8, u8> for RegisterCache {
     fn set(&mut self, dst: Reg8, src: u8) {
         match dst {
             Reg8::A => self.af.set_first(src),
-            Reg8::F => self.af.set_second(src),
+            Reg8::F => self.af.set_second(src & 0xF0),
             Reg8::B => self.bc.set_first(src),
             Reg8::C => self.bc.set_second(src),
             Reg8::D => self.de.set_first(src),
@@ -212,7 +212,7 @@ impl RegOps<Reg16, u16> for RegisterCache {
 
     fn set(&mut self, dst: Reg16, src: u16) {
         match dst {
-            Reg16::AF => { self.af.set_double(src) },
+            Reg16::AF => { self.af.set_double(src & 0xFFF0) },
             Reg16::BC => { self.bc.set_double(src) },
             Reg16::DE => { self.de.set_double(src) },
             Reg16::HL => { self.hl.set_double(src) },
