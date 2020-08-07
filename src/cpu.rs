@@ -303,6 +303,11 @@ impl CPU {
             AluOp::Sub(carry_op) => {
                 let (val, overflow) = op_a.overflowing_sub(op_b);
                 let (half_val, half_overflow) = (op_a & 0xf0).overflowing_sub(op_b & 0xf0);
+                // TODO: problem with flags
+                // What if the instruction doesn't actually modify the flag we change here?
+                // If that's the case then we shouldn't change the actual register value, but the
+                // internal boolean below is still changed. Seems like a massive problem. I think
+                // it'd be wise to redesign the half-baked flags implementation here.
                 self.half_carry = half_overflow;
                 self.full_carry = overflow;
                 if carry_op && carry_bit {
@@ -498,9 +503,9 @@ impl CPU {
     }
 
     // Toggle the CY flag, used for CCF instruction
-    fn toggle_cy(&mut self) {
-        let val = !self.regs.get_flag(Flag::CY);
-        self.regs.set_flag(Flag::CY, val);
+    fn toggle_cy(&mut self, flags: FlagStatus) {
+        self.full_carry = !self.regs.get_flag(Flag::CY);
+        self.evaluate_flags(flags);
     }
 
     // For HALT, just exit the program for now. TODO: Add accurate HALT emulation here.
@@ -614,7 +619,7 @@ impl CPU {
             0x34 => self.hl_ptr_inc_dec(lookup::get_flags(opcode)),
             0x35 => self.hl_ptr_inc_dec(lookup::get_flags(opcode)),
             0x36 => {let hl = self.regs.get(Reg16::HL); self.mem_set(_operand8, hl)},
-            0x37 => self.regs.set_flag(Flag::CY, true),
+            0x37 => self.evaluate_flags(lookup::get_flags(opcode)),
             0x38 => self.jump_relative_flag(Flag::CY, false, _operand8),
             0x39 => self.add_hl(lookup::get_flags(opcode), Reg16::SP),
             0x3a => self.ldd_special(false, false),
@@ -622,7 +627,7 @@ impl CPU {
             0x3c => self.arith_imm(AluOp::Add(false), Reg8::A, lookup::get_flags(opcode), 1),
             0x3d => self.arith_imm(AluOp::Sub(false), Reg8::A, lookup::get_flags(opcode), 1),
             0x3e => self.regs.set(Reg8::A, _operand8),
-            0x3f => self.toggle_cy(),
+            0x3f => self.toggle_cy(lookup::get_flags(opcode)),
 
             // [0x40, 0x7f] - Mostly copy instructions between registers and (HL).
             0x40 => self.regs.copy(Reg8::B, Reg8::B),
