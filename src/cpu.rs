@@ -295,32 +295,20 @@ impl CPU {
 
         let result = match op {
             AluOp::Add(carry_op) => {
-                let (val, overflow) = op_a.overflowing_add(op_b);
-                let half_val = (op_a & 0xf) + (op_b & 0xf);
-                self.flag_h = half_val > 0xf;
-                self.flag_cy = overflow;
-                if carry_op && self.flag_cy {
-                    let (new_val, new_overflow) = op_a.overflowing_add(1);
-                    self.flag_h = self.flag_h || (half_val+1) > 0xf;
-                    self.flag_cy = self.flag_cy || new_overflow;
-                    new_val
-                } else {
-                    val // test
-                }
+                let cv = if carry_op && self.flag_cy { 1 } else { 0 };
+                let (val, over) = op_a.overflowing_add(op_b);
+                let (val, overc) = val.overflowing_add(cv);
+                self.flag_cy = over || overc;
+                self.flag_h = (op_a & 0xf).wrapping_add(op_b & 0xf).wrapping_add(cv) > 0xf;
+                val
             },
             AluOp::Sub(carry_op) => {
-                let (val, overflow) = op_a.overflowing_sub(op_b);
-                let (half_val, half_overflow) = (op_a & 0xf0).overflowing_sub(op_b & 0xf0);
-                self.flag_h = half_overflow;
-                self.flag_cy = overflow;
-                if carry_op && self.flag_cy {
-                    let (new_val, new_overflow) = op_a.overflowing_sub(1);
-                    self.flag_h = self.flag_h || (half_val-1) <= 0xf;
-                    self.flag_cy = self.flag_cy || new_overflow;
-                    new_val
-                } else {
-                    val
-                }
+                let cv = if carry_op && self.flag_cy { 1 } else { 0 };
+                let (val, over) = op_a.overflowing_sub(op_b);
+                let (val, overc) = val.overflowing_sub(cv);
+                self.flag_cy = over || overc;
+                self.flag_h = (op_a & 0xf).wrapping_sub(op_b & 0xf).wrapping_sub(cv) > 0xf;
+                val
             },
             AluOp::And      => op_a & op_b,
             AluOp::Xor      => op_a ^ op_b,
