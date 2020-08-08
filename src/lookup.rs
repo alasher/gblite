@@ -4641,7 +4641,7 @@ pub fn get_instruction(opcode: u16) -> Instruction {
 }
 
 
-pub fn get_flags(full_opcode: u16) -> FlagStatus {
+pub fn get_flagmod(full_opcode: u16) -> FlagStatus {
     match full_opcode {
         0x04 => FlagStatus{ z: FlagMod::Eval, n: FlagMod::Set(false), h: FlagMod::Eval, cy: FlagMod::Ignore },
         0x05 => FlagStatus{ z: FlagMod::Eval, n: FlagMod::Set(true), h: FlagMod::Eval, cy: FlagMod::Ignore },

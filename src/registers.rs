@@ -48,6 +48,18 @@ pub enum Flag {
     CY
 }
 
+impl Display for Flag {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        let s = match *self {
+            Flag::Z => "Flag::Z",
+            Flag::N => "Flag::N",
+            Flag::H => "Flag::H",
+            Flag::CY => "Flag::CY",
+        };
+        write!(f, "{}", s)
+    }
+}
+
 pub enum FlagMod {
     Ignore,
     Eval,
