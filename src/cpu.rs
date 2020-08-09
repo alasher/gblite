@@ -410,13 +410,13 @@ impl CPU {
     // As it turns out, adding/subtracting is really the only 16-bit ALU operation
     fn add_u16(&mut self, operand_a: u16, operand_b: u16, subtract: bool) -> u16 {
         let (result, hresult) = if !subtract {
-            (operand_a.overflowing_add(operand_b), (operand_a & 0xf).wrapping_add(operand_b & 0xf))
+            (operand_a.overflowing_add(operand_b), (operand_a & 0xfff).wrapping_add(operand_b & 0xfff))
         } else {
-            (operand_a.overflowing_sub(operand_b), (operand_a & 0xf).wrapping_sub(operand_b & 0xf))
+            (operand_a.overflowing_sub(operand_b), (operand_a & 0xfff).wrapping_sub(operand_b & 0xfff))
         };
 
         self.flag_cy = result.1;
-        self.flag_h = hresult > 0xf;
+        self.flag_h = hresult > 0xfff;
         self.flag_z = result.0 == 0;
         result.0
     }
