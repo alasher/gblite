@@ -5,8 +5,7 @@ use std::io;
 
 pub struct Memory {
     mem:  Vec<u8>,
-    rom:  Vec<u8>,
-    bios: Vec<u8>
+    rom:  Vec<u8>
 }
 
 pub enum MemClient {
@@ -16,23 +15,20 @@ pub enum MemClient {
 
 impl Memory {
     pub fn new(size: usize) -> Memory {
+
+        let mut v = vec![0; size];
+        v[0xff50] = 1;
+
         Memory {
-            mem:  vec![0; size],
-            rom:  Vec::new(),
-            bios: Memory::default_bios()
+            mem:  v,
+            rom:  Vec::new()
         }
     }
 
     // TODO: Implement ROM switching and interfaces for different memory bank controllers.
     pub fn get(&self, addr: u16, _client: MemClient) -> u8 {
         let a = addr as usize;
-        if a < 0x100 {
-            if self.bootrom_enabled() {
-                self.bios[a]
-            } else {
-                self.rom[a]
-            }
-        } else if a < 0x4000 {
+        if a < 0x4000 {
             self.rom[a]
         } else if a < 0x8000 {
             self.rom[a]
@@ -43,13 +39,7 @@ impl Memory {
 
     pub fn set(&mut self, val: u8, addr: u16, _client: MemClient) {
         let a = addr as usize;
-        if a < 0x100 {
-            if self.bootrom_enabled() {
-                self.bios[a] = val;
-            } else {
-                self.rom[a] = val;
-            }
-        } else if a < 0x4000 {
+        if a < 0x4000 {
             self.rom[a] = val;
         } else if a < 0x8000 {
             self.rom[a] = val;
@@ -60,25 +50,6 @@ impl Memory {
 
     pub fn load_rom_file(&mut self, file_name : &str) {
         self.rom = fs::read(file_name).unwrap_or(vec![])
-    }
-
-    pub fn load_bios_file(&mut self, file_name : &str) {
-        self.bios = fs::read(file_name).unwrap_or(vec![])
-    }
-
-    fn default_bios() -> Vec<u8> {
-        let mut bios = vec![0x0; 0x100];
-        bios[0x01] = 0xC3; // Jump to the end of the boot ROM. (JP a16)
-        bios[0x02] = 0xFC;
-        bios[0xFC] = 0x3E; // Set A so we can use it to set Boot ROM. (LD A,d8)
-        bios[0xFD] = 0x01;
-        bios[0xFE] = 0xE0; // Disable Boot ROM with (0xFF50) = 1. (LDH (a8),A)
-        bios[0xFF] = 0x50;
-        bios
-    }
-
-    fn bootrom_enabled(&self) -> bool {
-        self.mem[0xFF50] == 0
     }
 
     // For debug use only: do a hex dump of the contents of our ROM cartridge.

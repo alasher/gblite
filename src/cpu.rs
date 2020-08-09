@@ -109,7 +109,7 @@ impl CPU {
             ppu: ppu,
             inst: lookup::get_instruction(0x0),
             flagmod: lookup::get_flagmod(0x0),
-            pc: 0,
+            pc: 0x100,
             ir_enabled: true,
             quit: false,
             flag_z: true,
@@ -129,8 +129,10 @@ impl CPU {
         // TODO: modify this for GBC
         c.regs.set(Reg8::A, 0x01);
         c.regs.set(Reg8::C, 0x13);
+        c.regs.set(Reg8::E, 0xd8);
         c.regs.set(Reg16::HL, 0x014D);
         c.regs.set(Reg16::SP, 0xFFFE);
+        c.regs.set(Reg16::PC, c.pc);
         c.regs.set_flag(Flag::Z, c.flag_z);
         c.regs.set_flag(Flag::N, c.flag_n);
         c.regs.set_flag(Flag::H, c.flag_h);
@@ -407,15 +409,16 @@ impl CPU {
 
     // As it turns out, adding/subtracting is really the only 16-bit ALU operation
     fn add_u16(&mut self, operand_a: u16, operand_b: u16, subtract: bool) -> u16 {
-        match subtract {
-            false => {
-                let add16res = operand_a.overflowing_add(operand_b);
-                self.flag_cy = add16res.1;
-                self.flag_h = ((operand_a & 0xfff) + (operand_b & 0xfff)) > 0xfff;
-                add16res.0
-            },
-            true  => operand_a.wrapping_sub(operand_b)
-        }
+        let (result, hresult) = if !subtract {
+            (operand_a.overflowing_add(operand_b), (operand_a & 0xf).wrapping_add(operand_b & 0xf))
+        } else {
+            (operand_a.overflowing_sub(operand_b), (operand_a & 0xf).wrapping_sub(operand_b & 0xf))
+        };
+
+        self.flag_cy = result.1;
+        self.flag_h = hresult > 0xf;
+        self.flag_z = result.0 == 0;
+        result.0
     }
 
     // Perform ALU op on accumulator and input register, and handle flags.
@@ -455,7 +458,8 @@ impl CPU {
     // Add SP and immediate signed, and store to given Reg16.
     fn add_sp_signed(&mut self, dest: Reg16, offset: i8) {
         let sub = offset < 0;
-        let offset_u = (offset as u8) as u16;
+        let m: i8 = if sub { -1 } else { 1 };
+        let offset_u = ((m*offset) as u8) as u16;
         let sp_val = self.regs.get(Reg16::SP);
         let sp_val = self.add_u16(sp_val, offset_u, sub);
         self.regs.set(dest, sp_val);
