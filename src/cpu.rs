@@ -1,12 +1,12 @@
 use std::fmt;
 use std::io;
-use std::io::Write;
+use std::io::{Write, BufWriter};
 use std::collections::HashSet;
 use std::sync::Arc;
 use std::sync::Mutex;
+use std::fs::File;
 
 use termcolor::{Color, ColorChoice, ColorSpec, StandardStream, WriteColor};
-use chrono::{Utc, Datelike, Timelike};
 
 use crate::memory::Memory;
 use crate::memory::MemClient;
@@ -62,6 +62,7 @@ pub struct CPU {
     pub ppu: PPU,
     inst: Instruction,
     flagmod: FlagStatus,
+    pc: u16,
     ir_enabled: bool,
     quit: bool,
     flag_z: bool,
@@ -73,17 +74,42 @@ pub struct CPU {
     killpoint: Option<u16>,
     stepover_break: Option<u16>,
     last_break_arg: Option<String>,
+    trace_file: Option<BufWriter<File>>,
     verbose: bool,
+}
+
+impl Drop for CPU {
+    fn drop(&mut self) {
+        match &mut self.trace_file {
+            Some(f) => f.flush().unwrap(),
+            _ => ()
+        }
+    }
 }
 
 impl CPU {
     pub fn new(mem: Arc<Mutex<Memory>>, ppu: PPU, rcfg: &RuntimeConfig) -> CPU {
+
+        let trace_file = if rcfg.dump_trace {
+            let trace_fname = util::create_file_name("_trace");
+            match File::create(trace_fname.as_str()) {
+                Ok(f) => Some(BufWriter::new(f)),
+                Err(why) => {
+                    println!("Couldn't write file {}: {}", trace_fname, why);
+                    None
+                }
+            }
+        } else {
+            None
+        };
+
         let mut c = CPU {
             regs: RegisterCache::new(),
             mem: mem,
             ppu: ppu,
             inst: lookup::get_instruction(0x0),
             flagmod: lookup::get_flagmod(0x0),
+            pc: 0,
             ir_enabled: true,
             quit: false,
             flag_z: true,
@@ -95,6 +121,7 @@ impl CPU {
             killpoint: rcfg.killpoint,
             stepover_break: None,
             last_break_arg: None,
+            trace_file: trace_file,
             verbose: rcfg.verbose,
         };
 
@@ -375,11 +402,6 @@ impl CPU {
             _ => result == 0
         };
 
-        // if cfg!(debug_assertions) {
-        //     println!("Result of ALU instruction {} with input {}, {} => {}. Z: {}, H: {}, CY: {}",
-        //              op, op_a, op_b, result, self.flag_z, self.flag_h, self.flag_cy);
-        // }
-
         result
     }
 
@@ -550,16 +572,16 @@ impl CPU {
     // Run the instruction at the current PC, return true if successful.
     pub fn process(&mut self) -> bool {
         if self.quit { return false; }
-        let old_pc = self.regs.get(Reg16::PC);
-        let opcode = self.mem_get(old_pc);
-        let _operand8  = self.mem_get(old_pc+1);
-        let _operand16 = self.parse_u16(old_pc+1);
+        self.pc = self.regs.get(Reg16::PC);
+        let opcode = self.mem_get(self.pc);
+        let _operand8  = self.mem_get(self.pc+1);
+        let _operand16 = self.parse_u16(self.pc+1);
 
         // Adjust opcode if it's a 0xcb prefixed instruction
         let opcode = if opcode == 0xcb {
             let newop = ((0xcb as u16) << 8) | _operand8 as u16;
-            let _operand8  = self.mem_get(old_pc+2);
-            let _operand16 = self.parse_u16(old_pc+2);
+            let _operand8  = self.mem_get(self.pc+2);
+            let _operand16 = self.parse_u16(self.pc+2);
             newop
         } else {
             opcode as u16
@@ -571,12 +593,12 @@ impl CPU {
         // TODO: Check here to see if we need to process an interrupt
 
         // Handle debugging here
-        self.handle_debugging(old_pc);
+        self.handle_debugging();
         if self.quit { return false; }
 
         // Increment PC before we process the instruction. During execution the current PC will
         // represent the next instruction to process.
-        self.regs.set(Reg16::PC, old_pc + (self.inst.bytes as u16));
+        self.regs.set(Reg16::PC, self.pc + (self.inst.bytes as u16));
 
         match opcode {
             // [0x00, 0x3f] - Load, INC/DEC, some jumps, and other various instructions.
@@ -1120,46 +1142,88 @@ impl CPU {
         !self.quit
     }
 
-    fn handle_debugging(&mut self, pc: u16) {
+    fn handle_debugging(&mut self) {
         let mut should_break = false;
-        if self.breaks.contains(&pc) { should_break = true; }
-        if self.stepover_break == Some(pc) || self.stepinto {
+        if self.breaks.contains(&self.pc) { should_break = true; }
+        if self.stepover_break == Some(self.pc) || self.stepinto {
             should_break = true;
             self.stepinto = false;
             self.stepover_break = None;
         }
 
         if should_break {
-            self.print_instruction_info(pc, true);
-            self.get_breakpoint_input(pc);
+            self.print_instruction_info(self.verbose, true);
+            self.get_breakpoint_input();
         } else if self.verbose {
-            self.print_instruction_info(pc, false);
+            self.print_instruction_info(true, false);
         }
 
-        if self.killpoint == Some(pc) {
+        if self.trace_file.is_some() {
+            self.write_instruction_trace();
+        }
+
+        if self.killpoint == Some(self.pc) {
             self.quit = true;
             return;
         }
     }
 
-    fn print_instruction_info(&self, cur_pc: u16, is_break: bool) {
-        let mut pstr = format!("0x{:04x}: {} - {} cycles", cur_pc, self.inst.name, self.inst.clocks);
-        if self.inst.bytes > 1 && !self.inst.prefix_cb {
-            pstr += " - operands: ";
-            if self.inst.bytes == 3 {
-                pstr += &format!("0x{:04x}", self.parse_u16(cur_pc + 1 as u16));
-            } else {
-                for i in 1..self.inst.bytes {
-                    pstr += &format!("0x{:02x} ", self.mem_get(cur_pc + i as u16));
-                }
-            }
-        }
+    fn print_instruction_info(&self, detailed: bool, is_break: bool) {
+        let pstr = self.get_instruction_info_str(detailed);
         let mut stdout = StandardStream::stdout(ColorChoice::Always);
         if is_break {
             stdout.set_color(ColorSpec::new().set_fg(Some(Color::Yellow)).set_bold(true)).unwrap();
         }
         writeln!(&mut stdout, "{}", pstr).unwrap();
         stdout.set_color(ColorSpec::new().set_fg(None)).unwrap();
+    }
+
+    fn write_instruction_trace(&mut self) {
+        let mut pstr = self.get_instruction_info_str(true);
+        pstr.push('\n');
+        match &mut self.trace_file {
+            None => (),
+            Some(file) => { file.write(pstr.as_bytes()).unwrap(); }
+        }
+    }
+
+    fn get_instruction_info_str(&self, detailed: bool) -> String {
+        // A:01 F:Z-HC BC:0013 DE:00d8 HL:014d SP:fffe PC:0100 0x0100: 00
+        let flag_str = format!("{}{}{}{}",
+                       if self.regs.get_flag(Flag::Z)  { "Z" } else { "-" },
+                       if self.regs.get_flag(Flag::N)  { "N" } else { "-" },
+                       if self.regs.get_flag(Flag::H)  { "H" } else { "-" },
+                       if self.regs.get_flag(Flag::CY) { "C" } else { "-" });
+
+        let mut inst_str = String::from("");
+        if !detailed {
+            let argpc = self.pc + 1 as u16;
+            if self.inst.bytes == 3 {
+                inst_str += &format!("0x{:04x}", self.parse_u16(argpc));
+            } else {
+                inst_str += &format!("0x{:02x}", self.mem_get(argpc));
+            }
+        } else {
+            for i in 0..self.inst.bytes {
+                inst_str += &format!(" {:02x}", self.mem_get(self.pc + i as u16));
+            }
+        }
+
+        if detailed {
+            format!("A:{:02X} F:{} BC:{:04X} DE:{:04x} HL:{:04x} SP:{:04x} PC:{:04x} 0x{:04x}:{}",
+                               self.regs.get(Reg8::A),
+                               flag_str,
+                               self.regs.get(Reg16::BC),
+                               self.regs.get(Reg16::DE),
+                               self.regs.get(Reg16::HL),
+                               self.regs.get(Reg16::SP),
+                               self.regs.get(Reg16::PC),
+                               self.regs.get(Reg16::PC),
+                               inst_str)
+
+        } else {
+            format!("0x{:04x}: {} {}", self.regs.get(Reg16::PC), self.inst.name, inst_str)
+        }
     }
 
     fn print_register_info(&self) {
@@ -1174,7 +1238,7 @@ impl CPU {
                  self.parse_u16(hl));
     }
 
-    fn get_breakpoint_input(&mut self, cur_pc: u16) {
+    fn get_breakpoint_input(&mut self) {
         let mut done = false;
         while !done {
             print!("Press \'c\' to continue, \'s\' to step, \'p\' to print regs: ");
@@ -1193,11 +1257,9 @@ impl CPU {
             match selection.as_str() {
                 "p" => { self.print_register_info(); },
                 "s" => { self.stepinto = true; done = true; }
-                "n" => { self.stepover_break = Some(cur_pc + (self.inst.bytes as u16)); done = true; }
+                "n" => { self.stepover_break = Some(self.pc + (self.inst.bytes as u16)); done = true; }
                 "d" => {
-                    let dt = Utc::now();
-                    let fname = format!("gblite_mem_{}_{:02}_{:02}_{}_runtime.log", dt.year(), dt.month(), dt.day(),
-                                         dt.num_seconds_from_midnight());
+                    let fname = util::create_file_name("_mem_runtime");
                     let mref = self.mem.lock().unwrap(); mref.dump_to_file(fname.as_str()).unwrap(); }
                 _   => { done = true; }
             }

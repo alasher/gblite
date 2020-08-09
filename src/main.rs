@@ -13,12 +13,12 @@ use std::collections::HashSet;
 use std::thread;
 use std::time;
 use std::fs;
-use chrono::{Utc, Datelike, Timelike};
 
 pub struct RuntimeConfig {
     rom_file: Option<String>,
     breakpoints: HashSet<u16>,
     killpoint: Option<u16>,
+    dump_trace: bool,
     dump_mem: bool,
     verbose:  bool,
 }
@@ -29,6 +29,7 @@ impl RuntimeConfig {
             rom_file: None,
             breakpoints: HashSet::new(),
             killpoint: None,
+            dump_trace: false,
             dump_mem: false,
             verbose:  false,
         }
@@ -40,6 +41,7 @@ fn print_help_and_exit() {
     println!("Option -d: Dump system memory to a log file upon termination.");
     println!("Option -b [address]: Break at the given PC address. Can be specified multiple times.");
     println!("Option -k [address]: Kill the program at the given PC address. Can only be specified once.");
+    println!("Option -t: Log all instruction output to a trace file.");
     println!("Option -v: Enable verbose instruction execution output.");
     std::process::exit(1);
 }
@@ -74,6 +76,7 @@ fn main() {
                         Err(e) => { println!("Error parsing breakpoint argument \"{}\": {}", addr_str, e); },
                     }
                 },
+                "-t" => { cfg.dump_trace = true; },
                 "-v" => { cfg.verbose  = true; },
                 other => {
                     if &other[0..1] != "-" {
@@ -132,9 +135,7 @@ fn main() {
     }
 
     if cfg.dump_mem {
-        let dt = Utc::now();
-        let fname = format!("gblite_mem_{}_{:02}_{:02}_{}.log", dt.year(), dt.month(), dt.day(),
-                            dt.num_seconds_from_midnight());
+        let fname = util::create_file_name("_mem");
         let mref = mem.lock().unwrap();
         match (*mref).dump_to_file(&fname) {
             Ok(_r) => (),

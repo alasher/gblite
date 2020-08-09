@@ -157,7 +157,7 @@ impl PPU {
         };
 
         let dbg = PPUDebug {
-            enabled: true,
+            enabled: false,
             last_frame: Instant::now(),
         };
 

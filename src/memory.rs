@@ -35,7 +35,6 @@ impl Memory {
         } else if a < 0x4000 {
             self.rom[a]
         } else if a < 0x8000 {
-            println!("Reading from ROM bank N, this is unimplemented!");
             self.rom[a]
         } else {
             self.mem[a]
@@ -53,7 +52,6 @@ impl Memory {
         } else if a < 0x4000 {
             self.rom[a] = val;
         } else if a < 0x8000 {
-            println!("Writing to ROM bank N, this is unimplemented!");
             self.rom[a] = val;
         } else {
             self.mem[a] = val;
