@@ -314,9 +314,10 @@ impl CPU {
             AluOp::Xor      => op_a ^ op_b,
             AluOp::Or       => op_a | op_b,
             AluOp::Comp     => {
-                self.flag_z  = op_a == op_b;
-                self.flag_h  = op_a > op_b;
-                self.flag_cy = op_a < op_b;
+                let (val, over) = op_a.overflowing_sub(op_b);
+                self.flag_cy = over;
+                self.flag_h = (op_a & 0xf).wrapping_sub(op_b & 0xf).wrapping_sub(0) > 0xf;
+                self.flag_z = val == 0;
                 op_a
             },
             AluOp::RotateLeft(carry_op) => {
@@ -353,7 +354,7 @@ impl CPU {
                 op_a << 1
             },
             AluOp::Swap => {
-                op_a.wrapping_shl(8) | op_a.wrapping_shr(8)
+                (op_a & 0xf0).overflowing_shr(4).0 | (op_a & 0xf).overflowing_shl(4).0
             },
             AluOp::Test(off) => {
                 self.flag_z = (op_a & (0x1 << off)) == 0;
@@ -630,7 +631,7 @@ impl CPU {
             0x30 => self.jump_relative_flag(Flag::CY, true, _operand8),
             0x31 => self.regs.set(Reg16::SP, _operand16),
             0x32 => self.ldd_special(true, false),
-            0x33 => self.regs.add(Reg16::HL, 1),
+            0x33 => self.regs.add(Reg16::SP, 1),
             0x34 => self.hl_ptr_inc_dec(true),
             0x35 => self.hl_ptr_inc_dec(false),
             0x36 => {let hl = self.regs.get(Reg16::HL); self.mem_set(_operand8, hl)},
