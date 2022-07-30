@@ -1,4 +1,3 @@
-use std::fmt;
 use std::io;
 use std::io::{Write, BufWriter};
 use std::collections::HashSet;
@@ -16,45 +15,8 @@ use crate::registers::*;
 use crate::util;
 use crate::lookup;
 use crate::RuntimeConfig;
-
-#[derive(Copy, Clone, PartialEq)]
-enum AluOp {
-    Add(bool),
-    Sub(bool),
-    And,
-    Xor,
-    Or,
-    Comp,
-    RotateLeft(bool),
-    RotateRight(bool),
-    ShiftLeft,
-    ShiftRight(bool),
-    Swap,
-    Test(u8),
-    Set(u8, bool)
-}
-
-impl fmt::Display for AluOp {
-    fn fmt(&self, f: &mut fmt::Formatter) -> fmt::Result {
-        let op_name = match *self {
-            AluOp::Add(c) => if c { format!("AddCarry") } else { format!("Add") },
-            AluOp::Sub(c) => if c { format!("SubCarry") } else { format!("Sub") },
-            AluOp::And => format!("And"),
-            AluOp::Xor => format!("Xor"),
-            AluOp::Or => format!("Or"),
-            AluOp::Comp => format!("Comp"),
-            AluOp::RotateLeft(c) => if c { format!("RotateLeftCarry") } else { format!("RotateLeft") },
-            AluOp::RotateRight(c) => if c { format!("RotateRightCarry") } else { format!("RotateRight") },
-            AluOp::ShiftLeft => format!("ShiftLeft"),
-            AluOp::ShiftRight(c) => if c { format!("ShiftRightArithmetic") } else { format!("ShiftRightLogical") },
-            AluOp::Swap => format!("Swap"),
-            AluOp::Test(x) => format!("TestBit{}", x),
-            AluOp::Set(x, val) => format!("SetBit{}To{}", x, if val { '1' } else { '0' })
-        };
-
-        write!(f, "{}", op_name)
-    }
-}
+use crate::alu;
+use crate::alu::AluOp;
 
 pub struct CPU {
     pub regs: RegisterCache,
@@ -273,8 +235,21 @@ impl CPU {
         };
         let addr = self.regs.get(Reg16::HL);
         let operand_a = self.mem_get(addr);
-        let result = self.alu(op, operand_a, 1);
-        self.mem_set(result, addr);
+        let alu_out = alu::alu({ alu::AluInput {
+            op: op,
+            op_a: operand_a,
+            op_b: 1,
+            flag_z: self.flag_z,
+            flag_n: self.flag_n,
+            flag_h: self.flag_h,
+            flag_cy: self.flag_cy,
+        }});
+
+        self.mem_set(alu_out.result, addr);
+        self.flag_z = alu_out.flag_z;
+        self.flag_n = alu_out.flag_n;
+        self.flag_h = alu_out.flag_h;
+        self.flag_cy = alu_out.flag_cy;
     }
 
     // Jump to the given address if Z or CY match what we expect
@@ -316,111 +291,6 @@ impl CPU {
         self.regs.set(Reg16::PC, addr as u16);
     }
 
-    // Perform given ALU instruction against the given operands. It's the responsibility of other
-    // functions to handle moving the result to a certain register, or setting necessary flags.
-    fn alu(&mut self, op: AluOp, operand_a: u8, operand_b: u8) -> u8 {
-        let op_a = operand_a;
-        let op_b = operand_b;
-
-        let result = match op {
-            AluOp::Add(carry_op) => {
-                let cv = if carry_op && self.flag_cy { 1 } else { 0 };
-                let (val, over) = op_a.overflowing_add(op_b);
-                let (val, overc) = val.overflowing_add(cv);
-                self.flag_cy = over || overc;
-                self.flag_h = (op_a & 0xf).wrapping_add(op_b & 0xf).wrapping_add(cv) > 0xf;
-                val
-            },
-            AluOp::Sub(carry_op) => {
-                let cv = if carry_op && self.flag_cy { 1 } else { 0 };
-                let (val, over) = op_a.overflowing_sub(op_b);
-                let (val, overc) = val.overflowing_sub(cv);
-                self.flag_cy = over || overc;
-                self.flag_h = (op_a & 0xf).wrapping_sub(op_b & 0xf).wrapping_sub(cv) > 0xf;
-                val
-            },
-            AluOp::And      => op_a & op_b,
-            AluOp::Xor      => op_a ^ op_b,
-            AluOp::Or       => op_a | op_b,
-            AluOp::Comp     => {
-                let (val, over) = op_a.overflowing_sub(op_b);
-                self.flag_cy = over;
-                self.flag_h = (op_a & 0xf).wrapping_sub(op_b & 0xf).wrapping_sub(0) > 0xf;
-                self.flag_z = val == 0;
-                op_a
-            },
-            AluOp::RotateLeft(carry_op) => {
-                let edge_bit = (op_a & 0x80) != 0;
-                let rotate_bit = if carry_op { edge_bit } else { self.flag_cy };
-                self.flag_cy = edge_bit;
-                if rotate_bit {
-                    (op_a << 1) | 0x1
-                } else {
-                    op_a << 1
-                }
-            },
-            AluOp::RotateRight(carry_op) => {
-                let edge_bit = (op_a & 0x1) != 0;
-                let rotate_bit = if carry_op { edge_bit } else { self.flag_cy };
-                self.flag_cy = edge_bit;
-                if rotate_bit {
-                    (op_a >> 1) | 0x80
-                } else {
-                    op_a >> 1
-                }
-            },
-            AluOp::ShiftRight(is_arith) => {
-                self.flag_cy = (op_a & 0x1) != 0;
-                let fill_bit = is_arith && (op_a & 0x80 != 0);
-                if fill_bit {
-                    (op_a >> 1) | 0x80
-                } else {
-                    op_a >> 1
-                }
-            },
-            AluOp::ShiftLeft => {
-                self.flag_cy = (op_a & 0x80) != 0;
-                op_a << 1
-            },
-            AluOp::Swap => {
-                (op_a & 0xf0).overflowing_shr(4).0 | (op_a & 0xf).overflowing_shl(4).0
-            },
-            AluOp::Test(off) => {
-                self.flag_z = (op_a & (0x1 << off)) == 0;
-                op_a
-            },
-            AluOp::Set(off, val) => {
-                let mask = 0x1 << off;
-                if val {
-                    op_a | mask
-                } else {
-                    op_a & (!mask)
-                }
-            }
-        };
-
-        self.flag_z = match op {
-            AluOp::Comp | AluOp::Test(_) => self.flag_z,
-            _ => result == 0
-        };
-
-        result
-    }
-
-    // As it turns out, adding/subtracting is really the only 16-bit ALU operation
-    fn add_u16(&mut self, operand_a: u16, operand_b: u16, subtract: bool) -> u16 {
-        let (result, hresult) = if !subtract {
-            (operand_a.overflowing_add(operand_b), (operand_a & 0xfff).wrapping_add(operand_b & 0xfff))
-        } else {
-            (operand_a.overflowing_sub(operand_b), (operand_a & 0xfff).wrapping_sub(operand_b & 0xfff))
-        };
-
-        self.flag_cy = result.1;
-        self.flag_h = hresult > 0xfff;
-        self.flag_z = result.0 == 0;
-        result.0
-    }
-
     // Perform ALU op on accumulator and input register, and handle flags.
     fn arith_op(&mut self, op: AluOp, src: Reg8) {
         let operand_b = self.regs.get(src);
@@ -436,23 +306,64 @@ impl CPU {
     fn bitwise_hl_ptr(&mut self, op: AluOp) {
         let addr = self.regs.get(Reg16::HL);
         let operand_a = self.mem_get(addr);
-        let result = self.alu(op, operand_a, 0);
-        self.mem_set(result, addr);
+        let alu_out = alu::alu({ alu::AluInput {
+            op: op,
+            op_a: operand_a,
+            op_b: 0,
+            flag_z: self.flag_z,
+            flag_n: self.flag_n,
+            flag_h: self.flag_h,
+            flag_cy: self.flag_cy,
+        }});
+
+        self.flag_z = alu_out.flag_z;
+        self.flag_n = alu_out.flag_n;
+        self.flag_h = alu_out.flag_h;
+        self.flag_cy = alu_out.flag_cy;
+        self.mem_set(alu_out.result, addr);
     }
 
     // Take an immediate u8 instead of a register.
     fn arith_imm(&mut self, op: AluOp, dst_reg: Reg8, val: u8) {
         let operand_a = self.regs.get(dst_reg);
-        let result = self.alu(op, operand_a, val);
-        self.regs.set(dst_reg, result);
+        let alu_out = alu::alu({ alu::AluInput {
+            op: op,
+            op_a: operand_a,
+            op_b: val,
+            flag_z: self.flag_z,
+            flag_n: self.flag_n,
+            flag_h: self.flag_h,
+            flag_cy: self.flag_cy,
+        }});
+
+        self.flag_z = alu_out.flag_z;
+        self.flag_n = alu_out.flag_n;
+        self.flag_h = alu_out.flag_h;
+        self.flag_cy = alu_out.flag_cy;
+
+        self.regs.set(dst_reg, alu_out.result);
     }
 
     // Add a 16 bit register to HL
     fn add_hl(&mut self, src: Reg16) {
         let operand_a = self.regs.get(Reg16::HL);
         let operand_b = self.regs.get(src);
-        let result = self.add_u16(operand_a, operand_b, false);
-        self.regs.set(Reg16::HL, result);
+        let alu_out = alu::alu16({ alu::AluInput16 {
+            subtract: false,
+            op_a: operand_a,
+            op_b: operand_b,
+            flag_z: self.flag_z,
+            flag_n: self.flag_n,
+            flag_h: self.flag_h,
+            flag_cy: self.flag_cy,
+        }});
+
+        self.flag_z = alu_out.flag_z;
+        self.flag_n = alu_out.flag_n;
+        self.flag_h = alu_out.flag_h;
+        self.flag_cy = alu_out.flag_cy;
+
+        self.regs.set(Reg16::HL, alu_out.result);
     }
 
     // Add SP and immediate signed, and store to given Reg16.
@@ -461,8 +372,23 @@ impl CPU {
         let m: i8 = if sub { -1 } else { 1 };
         let offset_u = ((m*offset) as u8) as u16;
         let sp_val = self.regs.get(Reg16::SP);
-        let sp_val = self.add_u16(sp_val, offset_u, sub);
-        self.regs.set(dest, sp_val);
+
+        let alu_out = alu::alu16({ alu::AluInput16 {
+            subtract: sub,
+            op_a: sp_val,
+            op_b: offset_u,
+            flag_z: self.flag_z,
+            flag_n: self.flag_n,
+            flag_h: self.flag_h,
+            flag_cy: self.flag_cy,
+        }});
+
+        self.flag_z = alu_out.flag_z;
+        self.flag_n = alu_out.flag_n;
+        self.flag_h = alu_out.flag_h;
+        self.flag_cy = alu_out.flag_cy;
+
+        self.regs.set(dest, alu_out.result);
     }
 
     // We modify a local copy of each register value, then sync them using this function after the

@@ -1,10 +1,12 @@
-pub mod memory;
 pub mod cpu;
+pub mod memory;
 pub mod ppu;
 pub mod util;
+
+mod alu;
 mod registers;
-mod window;
 mod lookup;
+mod window;
 
 use std::collections::HashSet;
 
