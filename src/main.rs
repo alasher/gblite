@@ -1,40 +1,14 @@
-mod registers;
-mod cpu;
-mod ppu;
-mod window;
-mod memory;
-mod util;
-mod lookup;
-
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::sync::Mutex;
-use std::collections::HashSet;
 use std::thread;
 use std::time;
 use std::fs;
 
-pub struct RuntimeConfig {
-    rom_file: Option<String>,
-    breakpoints: HashSet<u16>,
-    killpoint: Option<u16>,
-    dump_trace: bool,
-    dump_mem: bool,
-    verbose:  bool,
-}
-
-impl RuntimeConfig {
-    pub fn new() -> Self {
-        RuntimeConfig {
-            rom_file: None,
-            breakpoints: HashSet::new(),
-            killpoint: None,
-            dump_trace: false,
-            dump_mem: false,
-            verbose:  false,
-        }
-    }
-}
+use libgblite::memory::Memory;
+use libgblite::cpu::CPU;
+use libgblite::ppu::PPU;
+use libgblite::util::create_file_name;
 
 fn print_help_and_exit() {
     println!("{} version v{}", env!("CARGO_PKG_NAME"), env!("CARGO_PKG_VERSION"));
@@ -47,7 +21,7 @@ fn print_help_and_exit() {
 }
 
 fn main() {
-    let mut cfg: RuntimeConfig = RuntimeConfig::new();
+    let mut cfg = libgblite::RuntimeConfig::new();
     let mut arg_skip = 0;
     let mut arg_id = 1;
 
@@ -117,12 +91,12 @@ fn main() {
         r.store(false, Ordering::SeqCst);
     }).expect("Error setting Ctrl-C handler");
 
-    let mut mem = memory::Memory::new(0x10000);
+    let mut mem = Memory::new(0x10000);
     mem.load_rom_file(&fname);
     let mem = Arc::new(Mutex::new(mem));
 
-    let ppu = ppu::PPU::new(mem.clone());
-    let mut z80 = cpu::CPU::new(mem.clone(), ppu, &cfg);
+    let ppu = PPU::new(mem.clone());
+    let mut z80 = CPU::new(mem.clone(), ppu, &cfg);
 
     // Run instructions until the end of time
     loop {
@@ -135,7 +109,7 @@ fn main() {
     }
 
     if cfg.dump_mem {
-        let fname = util::create_file_name("_mem");
+        let fname = create_file_name("_mem");
         let mref = mem.lock().unwrap();
         match (*mref).dump_to_file(&fname) {
             Ok(_r) => (),
