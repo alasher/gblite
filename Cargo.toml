@@ -1,15 +1,6 @@
-[package]
-name = "gblite"
-version = "0.1.1"
-authors = ["Austin Lasher <austin@lasher.email>"]
-edition = "2018"
-
 [workspace]
 
-[dependencies]
-libgblite = { path = "libgblite" }
-num = "0.3"
-ctrlc = { version = "3.1.*", features = ["termination"] }
-sdl2 = { version = "0.34.*" }
-chrono = "0.4.*"
-termcolor = "1.1.*"
+members = [
+    "libgblite",
+    "gblite"
+]

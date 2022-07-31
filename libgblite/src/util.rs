@@ -5,7 +5,8 @@ use chrono::{Utc, Datelike, Timelike};
 /// Join two u8 bytes into a single u16, little endian.
 /// 
 /// ```
-/// let combined = join_u8((0xFF, 0x11));
+/// use libgblite::util;
+/// let combined = util::join_u8((0xFF, 0x11));
 /// assert_eq!(combined, 0x11FF);
 /// ```
 pub fn join_u8(pair: (u8, u8)) -> u16 {
@@ -15,7 +16,8 @@ pub fn join_u8(pair: (u8, u8)) -> u16 {
 /// Split a u16 into two u8 bytes, little endian.
 /// 
 /// ```
-/// let split = split_u16(0x32DD);
+/// use libgblite::util;
+/// let split = util::split_u16(0x32DD);
 /// assert_eq!(split, (0xDD, 0x32));
 /// ```
 pub fn split_u16(dword: u16) -> (u8, u8) {
@@ -25,8 +27,9 @@ pub fn split_u16(dword: u16) -> (u8, u8) {
 /// Set or unset the specified bit within a byte.
 /// 
 /// ```
-/// assert_eq!(set_bit(0xFF, 7, false), 0x7F)
-/// assert_eq!(set_bit(0xF0, 4, true), 0xF0)
+/// use libgblite::util;
+/// assert_eq!(util::set_bit(0xFF, 7, false), 0x7F);
+/// assert_eq!(util::set_bit(0xF0, 4, true), 0xF0);
 /// ```
 pub fn set_bit(word: u8, bit: u8, set: bool) -> u8 {
     let mask = (1 as u8) << bit;
@@ -37,8 +40,9 @@ pub fn set_bit(word: u8, bit: u8, set: bool) -> u8 {
 /// Returns true iff the specified bit in a byte is set.
 /// 
 /// ```
-/// assert_eq!(is_bit_set(0xFF, 7), true)
-/// assert_eq!(is_bit_set(0x0F, 4), false)
+/// use libgblite::util;
+/// assert_eq!(util::is_bit_set(0xFF, 7), true);
+/// assert_eq!(util::is_bit_set(0x0F, 4), false);
 /// ```
 pub fn is_bit_set(word: u8, bit: u8) -> bool {
     (word & (1 << bit)) != 0

@@ -190,3 +190,24 @@ pub fn alu16(input: AluInput16) -> AluOutput16 {
         flag_cy: result.1,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn alu_add() {
+
+        let out = alu({ AluInput {
+            op: AluOp::Add(false),
+            op_a: 10,
+            op_b: 20,
+            flag_z: false,
+            flag_n: false,
+            flag_h: false,
+            flag_cy: false,
+        }});
+
+        assert_eq!(out.result, 30);
+    }
+}
